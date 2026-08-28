@@ -1,0 +1,13 @@
+# Linha longa é o estilo já praticado no código existente (máx atual: 125).
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B"]
+
+# Nomes em português não seguem convenções de inglês; e os scripts usam
+# constantes de configuração no topo do módulo por decisão de projeto.
+ignore = ["E501"]
+
+[format]
+quote-style = "double"

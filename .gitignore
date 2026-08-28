@@ -1,0 +1,17 @@
+# Artefatos gerados pelo pipeline — reproduzíveis, não versionados
+data/corpus_uesp/
+data/chunks.jsonl
+data/qdrant_storage/
+
+# Documento de origem recebido do IPF — institucional, versionado fora daqui
+docs/*.pdf
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ruff_cache/
+
+# Preferências pessoais do Claude Code (não compartilhadas)
+CLAUDE.local.md
+.claude/settings.local.json
