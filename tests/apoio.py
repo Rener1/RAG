@@ -84,6 +84,75 @@ class GeradorFalso:
         yield "gerada"
 
 
+class GeradorRoteirizado:
+    """Uma resposta por chamada, na ordem escrita. Guarda todos os prompts.
+
+    Existe para testar as chamadas internas (reformulação, triagem,
+    problematização), que precisam de uma saída controlada e de conferir o que
+    foi perguntado ao modelo. `GeradorFalso` devolve sempre a mesma coisa e
+    continua servindo para a geração da resposta.
+    """
+
+    def __init__(self, respostas: list[str] | None = None, erro: Exception | None = None) -> None:
+        self.respostas = list(respostas or [])
+        self.erro = erro
+        self.prompts: list[str] = []
+
+    def gerar(self, prompt: str):
+        self.prompts.append(prompt)
+        if self.erro is not None:
+            raise self.erro
+        yield self.respostas.pop(0) if self.respostas else ""
+
+
+class RecuperadorFalso:
+    """Cumpre `RecuperadorDeTrechos`. Ranking por consulta; registra o recebido."""
+
+    def __init__(
+        self,
+        por_consulta: dict[str, list[TrechoRecuperado]] | None = None,
+        padrao: list[TrechoRecuperado] | None = None,
+    ) -> None:
+        self.por_consulta = por_consulta or {}
+        self.padrao = padrao or []
+        self.consultas: list[tuple[str, int | None]] = []
+
+    def buscar(self, pergunta: str, k: int | None = None) -> list[TrechoRecuperado]:
+        self.consultas.append((pergunta, k))
+        return self.por_consulta.get(pergunta, self.padrao)
+
+
+class MarcoFalso:
+    """Cumpre `MarcoPedagogico` sem tocar em disco."""
+
+    def __init__(
+        self,
+        secoes: dict[str, str] | None = None,
+        identificador: str = "falso",
+        metadados: dict[str, str] | None = None,
+    ) -> None:
+        self._identificador = identificador
+        self.secoes = secoes or {"Papel": "papel de teste", "Instruções": "instruções de teste"}
+        self.metadados = metadados or {}
+
+    @property
+    def identificador(self) -> str:
+        return self._identificador
+
+    def secao(self, nome: str, padrao: str = "") -> str:
+        return self.secoes.get(nome, padrao)
+
+    def metadado(self, nome: str, padrao: str = "") -> str:
+        return self.metadados.get(nome, padrao)
+
+    def diz_sim(self, nome: str, padrao: bool) -> bool:
+        valor = self.metadados.get(nome, "").strip().casefold()
+        return padrao if not valor else valor in {"sim", "s", "true", "1", "yes"}
+
+    def secoes_de_resposta(self) -> list[tuple[str, str]]:
+        return list(self.secoes.items())
+
+
 class ColetorFalso:
     """Wiki de mentira, para testar a etapa de download sem tocar na rede."""
 

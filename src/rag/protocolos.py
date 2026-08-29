@@ -91,3 +91,30 @@ class RecuperadorDeTrechos(Protocol):
     """
 
     def buscar(self, pergunta: str, k: int | None = None) -> list[TrechoRecuperado]: ...
+
+
+@runtime_checkable
+class MarcoPedagogico(Protocol):
+    """O documento que define como o sistema se comporta.
+
+    A etapa de geração depende disto, e não da classe `Marco`: o marco vive em
+    arquivo versionado fora do código (`docs/fase-0-desenho-e-contratos.md` §3.5),
+    e a etapa não precisa saber de onde ele veio nem como foi analisado.
+    """
+
+    @property
+    def identificador(self) -> str: ...
+
+    def secao(self, nome: str, padrao: str = "") -> str: ...
+
+    def metadado(self, nome: str, padrao: str = "") -> str:
+        """Um campo do bloco de identificação do marco."""
+        ...
+
+    def secoes_de_resposta(self) -> list[tuple[str, str]]:
+        """(título, texto) das seções que orientam a resposta, na ordem do prompt.
+
+        Quais seções são essas é decisão do marco, não da geração — é o que
+        permite ao comitê acrescentar uma seção sem que ninguém mexa em código.
+        """
+        ...

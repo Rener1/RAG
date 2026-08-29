@@ -13,7 +13,6 @@ digita as perguntas que quiser e sai com uma linha vazia.
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ..config import Config
 from ..erros import ErroPipeline
 from ..servico import Servico
 from . import acoes, console
@@ -52,6 +51,7 @@ def _linha_de_estado(servico: Servico) -> None:
     console.detalhe(
         f"corpus: {documentos} arquivos · chunks: {chunks} · coleção '{servico.config.vetorial.colecao}': {pontos}"
     )
+    console.detalhe(f"marco: {servico.config.marco.ativo or 'nenhum (prompt genérico)'}")
 
 
 def _laco_de_consulta(servico: Servico, modo: str) -> None:
@@ -60,33 +60,58 @@ def _laco_de_consulta(servico: Servico, modo: str) -> None:
     `modo` decide o que acontece com a pergunta: 'buscar' só recupera trechos,
     'perguntar' fecha o ciclo RAG completo.
     """
-    e_busca = modo == "buscar"
-    console.titulo("Busca — só recuperação" if e_busca else "Perguntar — ciclo RAG completo")
+    titulos = {
+        "buscar": "Busca — só recuperação",
+        "perguntar": "Perguntar — ciclo RAG completo",
+        "dialogar": "Dialogar — problematiza antes de responder",
+    }
+    executar = {
+        "buscar": acoes.acao_buscar,
+        "perguntar": acoes.acao_perguntar,
+        "dialogar": acoes.acao_dialogar,
+    }[modo]
+
+    console.titulo(titulos[modo])
     console.detalhe(
-        "Digite a pergunta e Enter. Linha vazia volta ao menu." + ("" if e_busca else "  Ctrl+C interrompe a geração.")
+        "Digite a pergunta e Enter. Linha vazia volta ao menu."
+        + ("" if modo == "buscar" else "  Ctrl+C interrompe a geração.")
     )
     console.detalhe(f"k = {servico.config.busca.k} trechos por pergunta.")
+    if modo == "dialogar":
+        console.detalhe("O sistema pode devolver perguntas antes de buscar; Enter em branco pula essa etapa.")
 
     while True:
         pergunta = console.perguntar("\npergunta")
         if not pergunta:
             return
-        if e_busca:
-            acoes.acao_buscar(servico, pergunta)
-        else:
-            acoes.acao_perguntar(servico, pergunta)
+        executar(servico, pergunta)
 
 
-def _editar_configuracao(config: Config) -> None:
-    """Edita um campo de configuração para esta execução.
+def _escolher_marco(servico: Servico) -> None:
+    """Lista os marcos e troca o ativo para esta execução."""
+    acoes.acao_listar_marcos(servico)
+
+    escolha = console.perguntar("\nMarco (Enter volta, 'nenhum' desliga)", padrao=servico.config.marco.ativo)
+    if not escolha or escolha == servico.config.marco.ativo:
+        return
+
+    acoes.acao_usar_marco(servico, "" if escolha.strip().lower() == "nenhum" else escolha.strip())
+
+
+def _editar_configuracao(servico: Servico) -> None:
+    """Edita um campo de configuração para esta execução, ou grava o que já mudou.
 
     Os campos vêm por introspecção das dataclasses, então campo novo aparece
     aqui sozinho, sem formulário para manter.
     """
-    acoes.acao_mostrar_config(config)
+    config = servico.config
+    acoes.acao_mostrar_config(servico)
 
-    secao = console.perguntar("\nSeção (Enter volta)")
+    secao = console.perguntar("\nSeção (Enter volta, 'salvar' grava em config.toml)")
     if not secao:
+        return
+    if secao.strip().lower() == "salvar":
+        acoes.acao_salvar_config(servico)
         return
     if secao not in config.secoes():
         console.falha(f"Seção desconhecida. Disponíveis: {', '.join(config.secoes())}")
@@ -123,8 +148,10 @@ def executar(servico: Servico) -> int:
         Opcao("3", "Gerar chunks", lambda: acoes.acao_chunking(servico), "etapa 2 — rápido"),
         Opcao("4", "Indexar", lambda: acoes.acao_indexar(servico), "etapa 3 — embedding, muito demorado"),
         Opcao("5", "Buscar", lambda: _laco_de_consulta(servico, "buscar"), "etapa 4 — só recuperação"),
-        Opcao("6", "Perguntar", lambda: _laco_de_consulta(servico, "perguntar"), "etapa 5 — resposta completa"),
-        Opcao("7", "Configuração", lambda: _editar_configuracao(servico.config), "ver e ajustar parâmetros"),
+        Opcao("6", "Perguntar", lambda: _laco_de_consulta(servico, "perguntar"), "etapa 5 — resposta direta"),
+        Opcao("7", "Dialogar", lambda: _laco_de_consulta(servico, "dialogar"), "problematiza antes de responder"),
+        Opcao("8", "Marco pedagógico", lambda: _escolher_marco(servico), "ver e trocar o marco ativo"),
+        Opcao("9", "Configuração", lambda: _editar_configuracao(servico), "ver, ajustar e salvar parâmetros"),
     ]
     por_tecla = {opcao.tecla: opcao for opcao in opcoes}
 

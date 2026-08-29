@@ -3,6 +3,9 @@ data/corpus_uesp/
 data/chunks.jsonl
 data/qdrant_storage/
 
+# Configuração desta máquina (URLs, modelos, coleção). O exemplo é versionado.
+config.toml
+
 # Documento de origem recebido do IPF — institucional, versionado fora daqui
 docs/*.pdf
 

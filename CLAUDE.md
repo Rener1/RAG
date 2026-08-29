@@ -34,10 +34,12 @@ lá e ligue nas duas portas.
 ```bash
 python3 main.py                    # menu
 python3 main.py ambiente           # diagnóstico (use antes de investigar qualquer falha)
-python3 main.py chunking
+python3 main.py chunking           # --saida OUTRO.jsonl para não destruir o chunks.jsonl indexado
 python3 main.py indexar            # retoma de onde parou; --recriar para refazer
-python3 main.py buscar "..."       # só recuperação
-python3 main.py perguntar "..."    # ciclo RAG completo
+python3 main.py buscar "..."       # só recuperação; --sem-intermediar desliga a mediação
+python3 main.py perguntar "..."    # ciclo RAG completo; --direto pula a problematização
+python3 main.py marcos             # marcos pedagógicos disponíveis
+python3 main.py config             # configuração em vigor, com a origem de cada valor
 ```
 
 Rode a partir da raiz do repositório. Os caminhos são resolvidos a partir de
@@ -48,14 +50,30 @@ assumem a raiz.
 
 ```
 main.py              fino: só ajusta sys.path e delega
+config.toml          sobreposição de configuração desta máquina (gitignored)
+marcos/*.md          marcos pedagógicos — versionados, editáveis por quem não programa
 src/rag/
-  config.py          parâmetros de todas as etapas
-  protocolos.py      contratos (Embutidor, Gerador, RepositorioVetorial, ColetorDeCorpus...)
+  config.py          parâmetros de todas as etapas + leitura/escrita do config.toml
+  protocolos.py      contratos (Embutidor, Gerador, RepositorioVetorial, MarcoPedagogico...)
   orquestrador.py    MotorRag — o ciclo recuperação + geração
+  marco.py           carrega e valida os marcos
+  mediacao.py        IntermediadorDeConsulta — reformula, decompõe e funde (RRF)
+  sessao.py          Dialogo — a máquina de estados que problematiza antes de responder
   servico.py         onde as implementações concretas encontram os protocolos
   clientes/          Ollama, Qdrant, UESP, sessão HTTP com repetição
   etapas/            download, chunking, indexacao, recuperacao, geracao
   interface/         console, menu, cli, acoes
+```
+
+`marco.py`, `mediacao.py` e `sessao.py` ficam na raiz do pacote, **nunca em `etapas/`**, pelo
+mesmo motivo de `orquestrador.py`: cada um compõe recuperação com geração, e pôr qualquer um
+deles em `etapas/` obrigaria uma etapa a importar outra. As três camadas se empilham sem que
+nenhuma conheça as outras:
+
+```
+pergunta → Dialogo (triagem, problematização) → consulta consolidada
+         → IntermediadorDeConsulta (reformula, decompõe, funde) → N buscas
+         → MotorRag + marco → resposta
 ```
 
 Duas regras estruturais, ambas verificáveis:
@@ -66,9 +84,10 @@ Duas regras estruturais, ambas verificáveis:
    escrever outra classe com os mesmos métodos e mudar uma linha em `servico.py`. Os testes
    dependem disso: rodam com dublês, sem Qdrant nem Ollama.
 
-Verificáveis com `grep -rn "clientes" src/rag/etapas/` (deve vir vazio) e conferindo que nenhum
-import em `etapas/` aponta para outro módulo de `etapas/`. Se precisar quebrar uma delas, é sinal
-de que o código pertence a `orquestrador.py` ou a `clientes/`, não à etapa.
+**As duas são testadas** — `tests/test_estrutura.py` percorre `etapas/` com `ast` e falha se
+algum import quebrar qualquer uma. Não é mais disciplina, é a suíte. Se precisar quebrá-las, é
+sinal de que o código pertence a `orquestrador.py`, a um módulo de composição na raiz, ou a
+`clientes/` — não à etapa.
 
 ## Pipeline — a ordem importa
 
@@ -99,25 +118,66 @@ e o volume usa a flag `:Z` do SELinux.
 `python3 main.py ambiente` diagnostica os dois serviços, os modelos, a dimensão da coleção e os
 artefatos de cada etapa. É o primeiro comando a rodar diante de qualquer erro.
 
+## Marco pedagógico
+
+O marco é **dado versionado carregado em tempo de execução, nunca prompt no código**
+(`docs/fase-0-desenho-e-contratos.md` §3.5). Vive em `marcos/*.md`, em Markdown com frontmatter,
+e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução para o comitê.
+
+- `generico` é o ativo por padrão: serve ao corpus descartável e não tem valor pedagógico.
+- `freiriano` é **esqueleto**, `versao: 0`. A redação é do comitê pedagógico, não de
+  programadores (`docs/fase-2-prototipo.md` §4.6). **Não escreva o conteúdo dele.** Se faltar
+  alguma seção estrutural, acrescente a seção com a pergunta que ela precisa responder.
+- Três seções alimentam camadas diferentes: `Decomposição` orienta a mediação, `Triagem` e
+  `Problematização` orientam a sessão. As demais entram no prompt da resposta, e uma seção nova
+  criada pelo comitê entra sozinha, sem alteração de código.
+- Marco quebrado **levanta erro**; não cai no prompt genérico em silêncio. Isso é deliberado.
+
 ## Armadilhas
 
-- **`montar_prompt()` em `etapas/geracao.py` é um placeholder.** O prompt genérico ali será
-  substituído pelo marco pedagógico (problematizar antes de responder, exigir citação por
-  afirmação, buscar posições divergentes, recusar produto acabado). Não o "melhore" como prompt
-  genérico — é um ponto de extensão marcado. `MotorRag` aceita outro montador por injeção.
-- **`Recuperador.buscar()` tem um `NOTE`** marcando onde entra o intermediador de decomposição de
-  consulta. Ainda não implementado, por decisão.
+- **`montar_prompt()` em `etapas/geracao.py` é o caminho sem marco**, usado só quando
+  `marco.ativo` está vazio. O caminho normal é `montador_do_marco()`. Não "melhore" o texto
+  genérico dali: comportamento se ajusta editando `marcos/*.md`, que é o ponto todo.
+- **A mediação custa uma chamada ao modelo por pergunta.** `IntermediadorDeConsulta` reformula e
+  decompõe antes de embutir. Para medir `recall@k` sem esse custo — e para comparar contra a
+  linha de base — use `buscar --sem-intermediar`. Qualquer tropeço dela (modelo fora do ar, saída
+  ilegível) vira busca direta, nunca exceção: a recuperação tem de continuar avaliável sozinha.
+- **A sessão dialógica só roda com terminal.** `cli._escolher_modo_de_pergunta` desliga a
+  problematização quando `sys.stdin.isatty()` é falso, porque as perguntas devolvidas não teriam
+  para quem ir e o processo ficaria pendurado num `input()`. É isso que mantém
+  `main.py perguntar "..."` funcionando em cron, pipe e script. Não remova essa guarda.
+- **As flags globais usam `default=argparse.SUPPRESS`.** Sem isso, o subparser parseia num
+  namespace novo e copia por cima, e `main.py --colecao x buscar ...` perde a flag sem erro
+  nenhum. E **não use `parser.set_defaults`** para elas: ele reescreve o `default` do objeto da
+  ação, que `parents` compartilha, desfazendo o SUPPRESS. Normalizar depois do parse é o
+  contrapeso (`_normalizar_globais`). Coberto por teste.
+- **`config.toml` é sobreposição, não substituição.** A precedência é padrões de `config.py` →
+  arquivo → flags, e o arquivo guarda só o que difere do padrão. Gravar só acontece quando pedido
+  (`config --salvar`), e regrava o arquivo perdendo comentários do usuário. `config.exemplo.toml`
+  é **gerado** das dataclasses: depois de acrescentar um campo, rode
+  `python3 -c "import sys; sys.path.insert(0,'src'); from rag.config import escrever_exemplo; escrever_exemplo()"`
+  — há teste que falha se ele ficar defasado.
+- **`Chunk.como_dicionario()` omite campo em branco.** Os campos de proveniência (`pagina`,
+  `secao`, `inicio`, `fim`, `versao_embedding`, `restricao_uso`) foram acrescentados de forma
+  aditiva, e é essa omissão que mantém o `chunks.jsonl` byte a byte idêntico e o índice válido.
+  Gravar campo vazio custaria uma reindexação de horas.
+- **`main.py chunking` sobrescreve `data/chunks.jsonl`**, que é o arquivo correspondente aos
+  pontos indexados. Para experimentar estratégia, use `--saida OUTRO.jsonl` e indexe contra
+  `--colecao OUTRA`.
 - **Mudar a estratégia de chunking invalida o índice inteiro.** A saída de `chunking` com a
   estratégia padrão (`paragrafo`) é byte a byte igual à do protótipo original — 69285 chunks,
   sha256 `a991de28...`. `paragrafo_agrupado` existe e é melhor (não descarta parágrafo curto),
-  mas trocar exige reindexar tudo, o que leva horas. Não troque de passagem.
+  mas trocar exige reindexar tudo, o que leva horas. Não troque de passagem. **Regra que sai
+  disso: toda mudança que invalida o índice espera pela próxima reindexação obrigatória, e todas
+  entram juntas** — os caminhos e a ordem estão em `docs/recorte-de-conteudo-caminhos.md`.
 - **`DIMENSAO_VETOR` tem que bater com a saída do modelo de embedding.** Isso agora é
   *verificado antes* de qualquer processamento (`garantir_colecao`), com erro explicado — não é
   mais o modo de falha silencioso que era. Ao trocar o modelo, use `indexar --recriar`.
 - **A indexação retoma por padrão.** Chunks já indexados são pulados (consulta por `uuid5` do
   `chunk_id`), então repetir a etapa custa segundos em vez de horas. `--sem-retomada` desliga.
-- **Os parâmetros ficam em `src/rag/config.py`**, não espalhados pelos módulos e não em `.env`.
-  O menu (opção 7) e as flags da CLI ajustam em memória, só para aquela execução.
+- **Os padrões ficam em `src/rag/config.py`**, não espalhados pelos módulos e não em `.env`. Por
+  cima deles entra o `config.toml` (opcional, gitignored), e por cima dele as flags e o menu.
+  Ajuste de menu e de flag vale só para aquela execução até ser gravado com `config --salvar`.
 
 ## Testes
 
@@ -125,8 +185,14 @@ artefatos de cada etapa. É o primeiro comando a rodar diante de qualquer erro.
 python3 -m unittest discover -s tests -t tests
 ```
 
-45 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no ciclo
-RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
+158 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
+
+Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,
+`GeradorRoteirizado` (respostas em sequência, guarda os prompts — é o que testa triagem,
+reformulação e problematização), `RecuperadorFalso`, `MarcoFalso`, `ColetorFalso`.
+
+Formatação e lint: `ruff format src/ tests/ main.py` e `ruff check src/ tests/ main.py`.
 
 ## Arquivos que você NÃO deve ler ou varrer em massa
 

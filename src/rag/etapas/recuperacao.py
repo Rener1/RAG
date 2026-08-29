@@ -23,12 +23,14 @@ class Recuperador:
         self._config = config
 
     def buscar(self, pergunta: str, k: int | None = None) -> list[TrechoRecuperado]:
-        """Trechos mais próximos da pergunta, do mais para o menos similar."""
-        # NOTE: ponto de entrada do intermediador de decomposição de consulta,
-        # combinado para depois e ainda não implementado — pergunta composta
-        # vira N sub-perguntas, cada uma buscada em separado, e os resultados
-        # se combinam antes de montar o prompt. Fica aqui, e não na geração,
-        # porque é decisão de recuperação.
+        """Trechos mais próximos da pergunta, do mais para o menos similar.
+
+        Busca direta, uma consulta e um vetor. A decomposição de pergunta
+        composta em N sub-consultas vive em `rag.mediacao`, envolvendo esta
+        classe por injeção — não aqui dentro. É o que mantém esta etapa como a
+        linha de base contra a qual a mediação é comparável
+        (`buscar --sem-intermediar`).
+        """
         vetor = self._embutidor.embutir([pergunta])[0]
         return self._repositorio.buscar(
             vetor,

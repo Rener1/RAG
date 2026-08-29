@@ -1,0 +1,89 @@
+# config.exemplo.toml — modelo para o config.toml desta máquina.
+#
+# Copie para `config.toml` e descomente só o que precisar mudar:
+#
+#     cp config.exemplo.toml config.toml
+#
+# Tudo aqui está com o valor padrão do código, então um arquivo com todas as
+# linhas comentadas equivale a não ter arquivo nenhum. A precedência é
+# padrões de src/rag/config.py → config.toml → flags da linha de comando.
+#
+# `python3 main.py config` mostra o que está em vigor e de onde cada valor veio.
+# `python3 main.py config --salvar` grava aqui do lado, em config.toml, o que
+# você ajustou pelo menu ou por flag. `--sem-config` ignora o arquivo.
+#
+# Este arquivo é gerado a partir das dataclasses de src/rag/config.py. Para
+# regerá-lo depois de acrescentar um campo:
+#
+#     python3 -c "import sys; sys.path.insert(0,'src'); from rag.config import escrever_exemplo; escrever_exemplo()"
+
+# Onde vivem os artefatos gerados. Tudo abaixo de `data/`, tudo gitignored.
+[caminhos]
+# dados = "data"   # padrão: a pasta data/ na raiz do repositório
+
+# Coleta do corpus de teste na UESP (namespace Lore, via API MediaWiki).
+[download]
+# api_url = "https://en.uesp.net/w/api.php"
+# namespace = "Lore"
+# tamanho_minimo = 80
+# candidatos = 50000
+# titulos_por_lote = 50
+# lotes_paralelos = 8
+# timeout = 30
+# user_agent = "IA-Freiriana-RAG/2.0 (protótipo acadêmico; contato via repositório)"
+
+# Corte dos documentos em trechos.
+[chunking]
+# estrategia = "paragrafo"
+# tamanho_minimo = 60
+# tamanho_maximo = 2000
+
+# Geração de vetores. `dimensao` precisa bater com a saída do modelo.
+[embedding]
+# ollama_url = "http://localhost:11434"
+# modelo = "bge-m3"
+# dimensao = 1024
+# tamanho_lote = 16
+# lotes_paralelos = 4
+# timeout = 120
+
+# Banco vetorial. `colecao` é o que muda ao trocar de corpus.
+[vetorial]
+# url = "http://localhost:6333"
+# colecao = "uesp_lore"
+# timeout = 60
+
+# Recuperação.
+[busca]
+# k = 5
+# score_minimo = 0.0
+
+# Geração da resposta final.
+[geracao]
+# ollama_url = "http://localhost:11434"
+# modelo = "qwen2.5:7b"
+# temperatura = 0.2
+# timeout = 300
+# streaming = true
+
+# Reformulação e decomposição da pergunta antes da busca.
+[intermediacao]
+# ligada = true
+# maximo_de_subconsultas = 3
+# k_por_subconsulta = 8
+# constante_rrf = 60
+# incluir_pergunta_original = true
+# minimo_de_caracteres = 25
+# diversidade_por_documento = 0
+
+# Diálogo multi-turno — problematizar antes de responder.
+[sessao]
+# problematizar = true
+# classificar_com_modelo = true
+# perguntas_ancoradas = true
+# maximo_de_rodadas = 1
+# maximo_de_perguntas = 3
+
+# Marco pedagógico. O conteúdo mora em `marcos/*.md`, versionado no git.
+[marco]
+# ativo = "generico"

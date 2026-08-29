@@ -39,3 +39,12 @@ class ErroDimensaoIncompativel(ErroConfiguracao):
 
 class ErroPreRequisito(ErroPipeline):
     """Falta o artefato produzido pela etapa anterior."""
+
+
+class ErroMarcoInvalido(ErroConfiguracao):
+    """O marco pedagógico ativo não pôde ser lido.
+
+    É erro, e não queda silenciosa para o prompt genérico, de propósito: o marco
+    é o que diferencia este sistema de "um chatbot com um prompt bonito", e
+    perdê-lo sem aviso seria perder exatamente isso sem ninguém notar.
+    """

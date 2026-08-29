@@ -38,18 +38,21 @@ python3 main.py
 
 ```
 corpus: 8896 arquivos · chunks: sim · coleção 'uesp_lore': 69285 pontos
+marco: generico
 
   1  Verificar ambiente   diagnóstico de serviços e artefatos
   2  Baixar corpus        etapa 1 — rede, demorado
   3  Gerar chunks         etapa 2 — rápido
   4  Indexar              etapa 3 — embedding, muito demorado
   5  Buscar               etapa 4 — só recuperação
-  6  Perguntar            etapa 5 — resposta completa
-  7  Configuração         ver e ajustar parâmetros
+  6  Perguntar            etapa 5 — resposta direta
+  7  Dialogar             problematiza antes de responder
+  8  Marco pedagógico     ver e trocar o marco ativo
+  9  Configuração         ver, ajustar e salvar parâmetros
   0  Sair
 ```
 
-As opções **5** e **6** abrem um laço de conversa: você digita quantas
+As opções **5**, **6** e **7** abrem um laço de conversa: você digita quantas
 perguntas quiser, uma por linha, e volta ao menu com uma linha vazia. As etapas
 caras (1 e 4) confirmam antes de começar e mostram progresso.
 
@@ -62,14 +65,24 @@ python3 main.py chunking                      # etapa 2
 python3 main.py chunking --estrategia paragrafo_agrupado
 python3 main.py indexar                       # etapa 3 — retoma de onde parou
 python3 main.py indexar --recriar             # apaga a coleção e refaz
+python3 main.py chunking --saida data/experimento.jsonl   # preserva o chunks.jsonl indexado
 python3 main.py buscar "quem são os argonianos?"
+python3 main.py buscar "..." --sem-intermediar # sem reformular a pergunta
 python3 main.py perguntar "o que foi a crise de oblivion?" --k 8
+python3 main.py perguntar "..." --direto      # sem problematizar
 python3 main.py perguntar                     # modo conversa
+python3 main.py marcos                        # marcos pedagógicos disponíveis
+python3 main.py config                        # configuração e origem de cada valor
+python3 main.py config --salvar               # grava em config.toml
 python3 main.py --help                        # todos os subcomandos
 ```
 
-Opções globais: `--colecao NOME` (usa outra coleção nesta execução) e
-`--sem-cor`. O código de saída é 0 em sucesso e 1 em falha, para uso em script.
+Opções globais: `--colecao NOME`, `--marco NOME`, `--config ARQUIVO`,
+`--sem-config` e `--sem-cor`. O código de saída é 0 em sucesso e 1 em falha,
+para uso em script.
+
+Sem terminal interativo — pipe, cron, script — `perguntar` responde direto, sem
+problematizar: as perguntas devolvidas não teriam para quem ir.
 
 ## A ordem das etapas importa
 
@@ -92,12 +105,17 @@ resposta.
 
 ```
 main.py                  ponto de entrada único (menu + CLI)
+config.exemplo.toml      modelo do config.toml desta máquina
+marcos/                  marcos pedagógicos, em Markdown — ver marcos/LEIA-ME.md
 src/rag/
-  config.py              todos os parâmetros, em um lugar só
-  modelos.py             estruturas do domínio (Chunk, TrechoRecuperado...)
+  config.py              todos os parâmetros, mais leitura e escrita do config.toml
+  modelos.py             estruturas do domínio (Chunk, TrechoRecuperado, Sessao...)
   protocolos.py          contratos das peças substituíveis
   erros.py               exceções que a interface sabe explicar
   orquestrador.py        o ciclo RAG: recuperação + geração
+  marco.py               carrega e valida os marcos pedagógicos
+  mediacao.py            reformula e decompõe a pergunta antes da busca
+  sessao.py              a máquina de estados que problematiza antes de responder
   servico.py             composição das dependências
   ambiente.py            diagnóstico
   clientes/              adaptadores: Ollama, Qdrant, UESP, sessão HTTP
@@ -105,7 +123,7 @@ src/rag/
   interface/             console, menu, CLI, ações compartilhadas
 tests/                   testes com dublês — rodam sem Qdrant nem Ollama
 data/                    artefatos gerados (não versionado)
-docs/                    plano por fases
+docs/                    plano por fases e decisões técnicas
 ```
 
 Duas regras sustentam a modularidade, e valem literalmente:
@@ -116,15 +134,47 @@ Duas regras sustentam a modularidade, e valem literalmente:
    por outro banco vetorial, ou a UESP pelo acervo do IPF, é escrever uma classe
    com os mesmos métodos e mudar uma linha em `servico.py`.
 
-É por isso que os testes rodam sem serviço nenhum de pé.
+É por isso que os testes rodam sem serviço nenhum de pé — e as duas regras não
+dependem de ninguém lembrar delas: `tests/test_estrutura.py` falha se alguma for
+quebrada.
+
+## As três camadas sobre o RAG
+
+```
+pergunta → sessão dialógica → mediação de consulta → ciclo RAG + marco → resposta
+```
+
+**Marco pedagógico.** O que orienta a resposta não está no código: está em
+[marcos/](marcos/), em Markdown, versionado e editável por quem não programa —
+veja [marcos/LEIA-ME.md](marcos/LEIA-ME.md). O padrão é `generico`, que só serve
+ao corpus descartável. `python3 main.py marcos` lista e valida os disponíveis.
+
+**Mediação de consulta.** Uma pergunta composta vira um vetor só, e esse vetor
+fica perto de tudo e específico de nada. Antes de embutir, a pergunta é
+reformulada em até três consultas independentes, cada uma é buscada, e os
+rankings se fundem por RRF. As sub-consultas aparecem na tela.
+`--sem-intermediar` desliga, e é assim que se compara com a busca direta.
+
+**Sessão dialógica.** Nem toda demanda deve virar resposta direto. A triagem
+classifica: dúvida factual vai à busca; pedido de produto acabado e exploração
+recebem perguntas de volta antes. O que você responde entra na consulta que vai
+à recuperação — problematizar melhora a busca, não só a forma. Enter em branco
+pula, e `--direto` desliga.
 
 ## Configuração
 
-Os parâmetros ficam em [src/rag/config.py](src/rag/config.py), agrupados por
-etapa. Não há `.env`: o padrão vive no código e é o que roda.
+Os padrões ficam em [src/rag/config.py](src/rag/config.py), agrupados por etapa.
+Por cima deles entra um `config.toml` opcional, e por cima dele as flags:
 
-Para ajustar sem editar arquivo, use a opção **7** do menu ou as flags da CLI —
-vale só para aquela execução.
+```
+padrões do código  →  config.toml  →  flags e menu
+```
+
+O arquivo guarda **só o que difere do padrão**, então apagá-lo devolve o
+comportamento documentado. Comece copiando
+[config.exemplo.toml](config.exemplo.toml), ou ajuste pelo menu e grave com
+`python3 main.py config --salvar`. `python3 main.py config` mostra de onde vem
+cada valor em vigor.
 
 ## Testes
 
@@ -132,6 +182,6 @@ vale só para aquela execução.
 python3 -m unittest discover -s tests -t tests
 ```
 
-45 testes, nenhum precisando de Qdrant, Ollama ou rede: as dependências
+158 testes, nenhum precisando de Qdrant, Ollama ou rede: as dependências
 externas entram como dublês (`tests/apoio.py`), o que só é possível porque as
 etapas dependem dos protocolos.
