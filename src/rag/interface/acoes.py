@@ -14,6 +14,7 @@ from pathlib import Path
 from .. import avaliacao
 from .. import config as configuracao
 from .. import marco as marco_pedagogico
+from ..acelerador import arquiteturas_amd
 from ..acelerador import detectar as detectar_acelerador
 from ..ambiente import Estado, pronto_para_perguntar, verificar
 from ..avaliacao import ResultadoDaAvaliacao
@@ -379,7 +380,11 @@ def acao_avaliar(
     # `None` entrega a decisão à política de busca — é assim que o `k` dinâmico
     # fica mensurável. Com `--k N`, o número pedido vale, que é o que a varredura
     # de `k` precisa para ser comparável.
-    dinamico = servico.config.busca.limiar_relativo > 0
+    #
+    # Com reordenação o `k` volta a ser fixo: o corte relativo pressupõe a lista
+    # ordenada por cosseno, e o cross-encoder ordena por outro critério. Dizer
+    # "k dinâmico" ali seria rotular errado o que de fato aconteceu.
+    dinamico = servico.config.busca.limiar_relativo > 0 and not servico.config.busca.reordenar
     k_efetivo = k if k is not None else (None if dinamico else servico.config.busca.k)
 
     try:
@@ -389,12 +394,15 @@ def acao_avaliar(
         return False
 
     console.titulo("Avaliação da recuperação")
-    descricao = (
-        f"k dinâmico (>= {servico.config.busca.limiar_relativo:.2f} do topo, "
-        f"entre {servico.config.busca.k_minimo} e {servico.config.busca.k_maximo})"
-        if k_efetivo is None
-        else f"k={k_efetivo}"
-    )
+    if k_efetivo is None:
+        descricao = (
+            f"k dinâmico (>= {servico.config.busca.limiar_relativo:.2f} do topo, "
+            f"entre {servico.config.busca.k_minimo} e {servico.config.busca.k_maximo})"
+        )
+    elif servico.config.busca.reordenar:
+        descricao = f"k={k_efetivo}, reordenando {servico.config.busca.candidatos_para_reordenar} candidatos"
+    else:
+        descricao = f"k={k_efetivo}"
     console.detalhe(f"{len(casos)} casos de {caminho.name}, {descricao}")
 
     # Quarenta decomposições impressas afogariam o resultado, que é o que
@@ -452,7 +460,7 @@ def _posicao(valor: int | None) -> str:
     return "não achou" if valor is None else f"#{valor}"
 
 
-def acao_acelerador(indice_apenas: bool = False) -> bool:
+def acao_acelerador(indice_apenas: bool = False, arquitetura_apenas: bool = False) -> bool:
     """Diz qual build de `torch` esta máquina precisa.
 
     Existe como comando porque a resposta é necessária **antes** de qualquer
@@ -465,6 +473,13 @@ def acao_acelerador(indice_apenas: bool = False) -> bool:
     if indice_apenas:
         # Saída limpa, para `--build-arg TORCH_INDEX=$(...)`.
         print(acelerador.indice_torch)
+        return True
+
+    if arquitetura_apenas:
+        # Idem, para `GPU_ARCH`: descarta os kernels das outras arquiteturas na
+        # imagem. Vazio quando não há GPU, e aí o build mantém todos.
+        arquiteturas = arquiteturas_amd()
+        print(arquiteturas[0] if arquiteturas else "")
         return True
 
     console.titulo("Acelerador desta máquina")
@@ -566,8 +581,10 @@ def _campo_inerte(config, nome_secao: str, campo: str) -> str:
     quantidade de trechos é decidida por ele e `k` deixa de valer. Sem esta
     marca, quem ajustasse `k` esperando efeito não teria como descobrir por quê.
     """
-    if nome_secao == "busca" and campo == "k" and config.busca.limiar_relativo > 0:
+    if nome_secao == "busca" and campo == "k" and config.busca.limiar_relativo > 0 and not config.busca.reordenar:
         return f"  {console.APAGADO}(sem efeito: limiar_relativo decide a quantidade){console.NORMAL}"
+    if nome_secao == "busca" and campo == "limiar_relativo" and config.busca.reordenar:
+        return f"  {console.APAGADO}(sem efeito: com reordenação, `k` decide){console.NORMAL}"
     return ""
 
 

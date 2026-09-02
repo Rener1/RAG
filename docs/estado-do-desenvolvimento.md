@@ -1,6 +1,6 @@
 # Estado do desenvolvimento
 
-**Última atualização:** 2026-09-01 · 284 testes · commit anterior `0f8cbc6`
+**Última atualização:** 2026-09-02 · 289 testes · commit anterior `fa3d7c8`
 **Padrões em vigor:** `busca.limiar_relativo = 0,90` (quantidade dinâmica) · `busca.k = 8` (reserva) ·
 `busca.reordenar = false` · `intermediacao.decompor = true` ·
 `geracao.num_ctx = 8192` · `marco.ativo = generico`
@@ -130,13 +130,14 @@ irrelevante — só mede onde a lista deixa de se parecer com o próprio topo.
 
 `python3 main.py avaliar --comparar` · gabarito corrigido
 
-| Configuração | recall | cobertura | MRR | tempo |
+| Configuração | recall | cobertura | MRR | trechos/caso |
 |---|---|---|---|---|
-| Busca direta | 88% | 74% | 0,606 | 1,4 s |
-| **Com mediação** | **90%** | **78%** | **0,653** | 12,2 s |
-| Com mediação + híbrido léxico | **92%** | **79%** | 0,647 | 16,6 s |
+| Busca direta | 88% | 74% | 0,601 | 8,4 |
+| **Mediação + reordenação** | **95%** | **79%** | **0,682** | **6,5** |
 
-Por tipo de demanda, a mediação leva `produto_acabado` de 80% a 100%.
+Por tipo de demanda: `exploracao` sobe de 80% a 90%, `produto_acabado` de 80% a
+100%. E entrega **menos** trechos que a busca direta — material melhor
+selecionado, prompt menor.
 
 A camada media **negativo** (−3 de recall) até quatro bugs serem corrigidos.
 Vale registrar quais, porque três deles eram invisíveis sem o harness:
@@ -327,7 +328,7 @@ menor. É esse o experimento que vale, e ele está pendente.
 
 | # | Item | Destravado por | Invalida o índice? |
 |---|---|---|---|
-| 1 | Decidir o destino do reordenador (ver abaixo) | Build da imagem com ROCm, e a medição de latência | não |
+| 1 | **Tamanho de chunk** — testar ~512 tokens contra os 85 atuais | Nada; `paragrafo_agrupado` já existe e o harness já mede | **sim** — coleção separada |
 | 2 | **Tamanho de chunk** — testar ~512 tokens contra os 85 atuais | Nada; `paragrafo_agrupado` já existe e o harness já mede | **sim** — roda em coleção separada |
 | 3 | Preencher página e offset nos campos de proveniência do `Chunk` | Troca para o acervo do IPF, que já obriga a reindexar | sim, junto da troca |
 | 4 | **MMR** — diversificação contínua, em vez de teto rígido | `buscar(..., com_vetores=True)` no protocolo | não |
@@ -347,17 +348,12 @@ custa horas.
 
 ## Decisões pendentes
 
-1. **O reordenador vale a instalação?** Mede +2 de recall e +3 de cobertura, e
-   resolveu o caso que motivou tudo — `Lore:Races` subiu de 7º para 2º. Mas
-   custa ~5 s por consulta em CPU. Acelerar exige o wheel ROCm (5,8 GB) numa
-   imagem Ubuntu, porque Fedora está fora da matriz de suporte da AMD. Está
-   implementado e **desligado por padrão**.
-2. **A mediação vale os 12 s?** Empata em recall com a busca direta e ganha
-   1 ponto de cobertura, a ~9× o tempo. Continua ligada porque `recall@k` não
-   enxerga diversidade, que é metade do motivo pedagógico da camada.
-3. **Quando testar o tamanho de chunk.** É a maior distância entre o que fazemos
-   (85 tokens) e a referência (512), e o harness já mede — mas exige reindexar
-   numa coleção paralela.
+1. **Quando testar o tamanho de chunk.** É a maior distância entre o que fazemos
+   (85 tokens) e a referência dos benchmarks (512), e o harness já mede — mas
+   exige reindexar numa coleção paralela, o que são horas de GPU.
+2. **Ligar o BM25 híbrido por padrão?** Ganha com idioma casado, perde sem. Como
+   a mediação hoje traduz, o cenário é o favorável — mas medi antes do conserto
+   da quantidade e o número precisa ser refeito.
 
 ---
 

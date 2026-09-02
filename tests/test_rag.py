@@ -6,7 +6,7 @@ from apoio import EmbutidorFalso, GeradorFalso, ReordenadorFalso, RepositorioFal
 
 from rag.config import ConfigBusca
 from rag.etapas.geracao import formatar_trechos, montar_prompt
-from rag.etapas.recuperacao import Recuperador, recortar_por_limiar_relativo
+from rag.etapas.recuperacao import Recuperador, decidir_quantidade, recortar_por_limiar_relativo
 from rag.modelos import Chunk, TrechoRecuperado
 from rag.orquestrador import MotorRag
 from rag.protocolos import Reordenador
@@ -198,6 +198,53 @@ class TestReordenacao(unittest.TestCase):
 
     def test_cumpre_o_protocolo(self):
         self.assertIsInstance(ReordenadorFalso(), Reordenador)
+
+
+class TestQuantidadeComReordenacao(unittest.TestCase):
+    """Reordenar e cortar por cosseno são incompatíveis — regressão de um bug real.
+
+    O corte relativo pergunta "o que está perto do melhor?" olhando o `score`, e
+    pressupõe a lista ordenada por ele. Depois de reordenar quem ordena é o
+    cross-encoder, e o primeiro colocado pode ter cosseno **menor** que o
+    terceiro. Medido numa pergunta real: topo 0,600 contra terceiro 0,665, o
+    limiar caía de 0,598 para 0,540 e a busca devolvia 21 trechos — acima do
+    próprio teto de 20.
+    """
+
+    def _candidatos(self):
+        """Ordem do reordenador, com o topo tendo cosseno menor que o terceiro."""
+        return [
+            TrechoRecuperado(texto=f"t{n}", titulo_pagina=f"P{n}", documento_origem="d", chunk_id=str(n), score=s)
+            for n, s in enumerate([0.600, 0.581, 0.665, 0.595, 0.543, 0.542, 0.540, 0.538, 0.536, 0.534])
+        ]
+
+    def test_com_reordenacao_entrega_o_k_fixo(self):
+        config = ConfigBusca(k=8, limiar_relativo=0.9, k_maximo=20, k_minimo=5, reordenar=True)
+        cabem = decidir_quantidade(self._candidatos(), config, None, reordenados=True)
+        self.assertEqual(len(cabem), 8)
+
+    def test_sem_reordenacao_a_politica_relativa_vale(self):
+        config = ConfigBusca(k=8, limiar_relativo=0.9, k_maximo=20, k_minimo=1)
+        cabem = decidir_quantidade(self._candidatos(), config, None, reordenados=False)
+        # 0,90 x 0,600 = 0,540: entram os que alcançam esse corte.
+        self.assertTrue(all(t.score >= 0.54 for t in cabem))
+
+    def test_k_explicito_manda_nos_dois_casos(self):
+        config = ConfigBusca(k=8, limiar_relativo=0.9, reordenar=True)
+        for reordenados in (True, False):
+            self.assertEqual(len(decidir_quantidade(self._candidatos(), config, 3, reordenados)), 3)
+
+    def test_nunca_passa_do_k_com_reordenacao(self):
+        """O bug devolvia 21 trechos com teto de 20."""
+        config = ConfigBusca(k=8, limiar_relativo=0.9, k_maximo=20, reordenar=True)
+        muitos = self._candidatos() * 5
+        self.assertEqual(len(decidir_quantidade(muitos, config, None, reordenados=True)), 8)
+
+    def test_reordenador_que_falhou_volta_a_politica_relativa(self):
+        """Se a reordenação não aconteceu, a ordem ainda é a do cosseno."""
+        config = ConfigBusca(k=8, limiar_relativo=0.9, k_minimo=1, reordenar=True)
+        cabem = decidir_quantidade(self._candidatos(), config, None, reordenados=False)
+        self.assertNotEqual(len(cabem), 8, "deveria usar o limiar, não o k")
 
 
 if __name__ == "__main__":

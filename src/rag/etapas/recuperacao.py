@@ -15,6 +15,41 @@ from ..modelos import TrechoRecuperado
 from ..protocolos import Embutidor, Reordenador, RepositorioVetorial
 
 
+def decidir_quantidade(
+    candidatos: list[TrechoRecuperado],
+    config: ConfigBusca,
+    k: int | None,
+    reordenados: bool,
+) -> list[TrechoRecuperado]:
+    """Quantos trechos entregar, conforme quem decidiu a ordem.
+
+    Existe como função separada porque **dois caminhos precisam da mesma
+    decisão** — a busca direta e a mediação, que funde rankings. Duplicá-la fez
+    um conserto valer só num dos lados, e a mediação continuou devolvendo 18
+    trechos depois de a busca direta já estar corrigida.
+
+    **Com reordenação, quantidade fixa.** O corte relativo pergunta "o que está
+    perto do melhor?" olhando o cosseno, e pressupõe a lista ordenada por ele.
+    Depois de reordenar isso deixa de valer: quem ordena é o cross-encoder, por
+    um critério que não é o cosseno, e o primeiro colocado pode ter similaridade
+    menor que o terceiro. Medido numa pergunta real, o topo tinha 0,600 e o
+    terceiro 0,665 — o corte caía de 0,598 para 0,540 e devolvia 21 trechos,
+    acima do próprio teto.
+
+    Não é caso de trocar o primeiro pelo maior: seria remendar a conta e manter
+    a incoerência. Depois de reordenar, cortar por cosseno não significa nada. O
+    reordenador **é** a seleção — entregar os `k` melhores dele é o desenho de
+    dois estágios como ele existe.
+    """
+    # `k` explícito manda: quem passou um número quer aquele número, e é o que
+    # mantém a varredura de `k` do harness comparável.
+    if k is not None:
+        return candidatos[:k]
+    if reordenados or config.limiar_relativo <= 0:
+        return candidatos[: config.k]
+    return recortar_por_limiar_relativo(candidatos, config.limiar_relativo, config.k_minimo)
+
+
 def recortar_por_limiar_relativo(
     trechos: list[TrechoRecuperado],
     limiar: float,
@@ -106,14 +141,9 @@ class Recuperador:
         )
         candidatos = self._reordenar(pergunta, candidatos)
 
-        # `k` explícito manda: quem passou um número quer aquele número, e é o
-        # que mantém a varredura de `k` do harness comparável.
-        if k is not None:
-            return candidatos[:k]
-        if self._config.limiar_relativo <= 0:
-            return candidatos[: self._config.k]
-        return recortar_por_limiar_relativo(
+        return decidir_quantidade(
             candidatos,
-            self._config.limiar_relativo,
-            self._config.k_minimo,
+            self._config,
+            k,
+            reordenados=self._reordenador is not None and self._config.reordenar,
         )

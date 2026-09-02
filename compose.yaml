@@ -61,7 +61,13 @@ services:
       dockerfile: Containerfile
       target: reordenacao
       args:
+        # Sem as variáveis, cai no build de CPU, que roda em qualquer hardware.
+        #   TORCH_INDEX=$(python3 main.py acelerador --indice) \
+        #   GPU_ARCH=gfx1201 \
+        #     podman compose --profile gpu build rag-gpu
         TORCH_INDEX: ${TORCH_INDEX:-https://download.pytorch.org/whl/cpu}
+        # Descarta os kernels das outras arquiteturas — vários GB a menos.
+        GPU_ARCH: ${GPU_ARCH:-}
     image: localhost/rag:reordenacao
     depends_on:
       - qdrant

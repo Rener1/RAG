@@ -163,6 +163,11 @@ def construir_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="imprime só a URL do índice, para usar em --build-arg",
     )
+    p_acelerador.add_argument(
+        "--arquitetura",
+        action="store_true",
+        help="imprime só a arquitetura da GPU (ex.: gfx1201), para enxugar a imagem",
+    )
 
     novo_subcomando("marcos", "lista os marcos pedagógicos disponíveis")
     novo_subcomando("menu", "abre o menu interativo (padrão)")
@@ -312,7 +317,11 @@ def principal(argv: list[str] | None = None) -> int:
                 else 1
             )
         if comando == "acelerador":
-            return 0 if acoes.acao_acelerador(indice_apenas=argumentos.indice) else 1
+            return (
+                0
+                if acoes.acao_acelerador(indice_apenas=argumentos.indice, arquitetura_apenas=argumentos.arquitetura)
+                else 1
+            )
         if comando == "marcos":
             return 0 if acoes.acao_listar_marcos(servico) else 1
         if comando == "config":

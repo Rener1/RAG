@@ -21,19 +21,57 @@ ollama pull qwen2.5:7b    # geração
 python3 main.py           # menu interativo — tudo passa por aqui
 ```
 
-Use **podman**, não docker — nesta máquina `docker` já é o shim dele. O podman
-roda rootless, e por isso os volumes usam a flag `:Z` do SELinux.
+Use **podman**, não docker — em muitas distros `docker` já é o shim dele. O
+podman roda rootless, e por isso os volumes usam a flag `:Z` do SELinux.
 
-Também dá para rodar o pipeline inteiro em container, sem instalar nada no
-host além do Ollama:
+## Rodando em container
+
+Alternativa à instalação no host: o pipeline inteiro roda em container, e o
+Ollama continua no host, onde a GPU dele já está configurada.
 
 ```bash
-podman compose --profile execucao build rag
-podman compose run --rm rag ambiente
+podman compose --profile execucao build rag     # imagem leve, ~250 MB
+podman compose run --rm rag                     # menu, igual ao host
+podman compose run --rm rag buscar "..."        # ou um subcomando
 ```
 
-Requer `OLLAMA_HOST=0.0.0.0` no serviço do host — o cabeçalho do
-[compose.yaml](compose.yaml) explica por quê e como.
+### Com reordenação por cross-encoder
+
+A reordenação melhora bastante a recuperação (95% de recall contra 88%), mas
+precisa de `torch`, que é pesado e **específico do seu acelerador**. Descubra
+qual a sua máquina precisa e construa:
+
+```bash
+python3 main.py acelerador                      # o que esta máquina tem
+
+TORCH_INDEX="$(python3 main.py acelerador --indice)" \
+GPU_ARCH="$(python3 main.py acelerador --arquitetura)" \
+  podman compose --profile gpu build rag-gpu
+
+podman compose --profile gpu run --rm rag-gpu   # menu, com reordenação
+```
+
+O `GPU_ARCH` é opcional e vale a pena: o `torch` embute kernels de **todas** as
+GPUs suportadas, e descartar as que você não tem economiza vários gigabytes.
+Sem os dois argumentos, a imagem sai com `torch` de CPU — funciona em qualquer
+hardware, mas a reordenação custa segundos em vez de décimos.
+
+Confira que deu certo com `podman compose --profile gpu run --rm rag-gpu ambiente`:
+a linha **`PyTorch e a GPU`** diz se o acelerador foi mesmo encontrado. Ela
+importa porque o wheel errado instala sem reclamar e cai para CPU em silêncio.
+
+### O que roda onde
+
+| | Onde | Por quê |
+|---|---|---|
+| Qdrant | container | serviço, sobe com `compose up -d` |
+| Ollama | **host** | a GPU dele já está configurada; containerizar custaria a imagem ROCm e o re-download dos modelos |
+| Pipeline | container | isola as dependências |
+| Código | **host**, montado no container | editar e testar sem reconstruir |
+
+Os serviços `rag` usam rede do host, então alcançam Ollama e Qdrant por
+`localhost` sem configuração extra. Os dados (`data/`) e o conteúdo editável
+(`marcos/`, `avaliacao/`) entram por montagem e sobrevivem à troca de imagem.
 
 ## Como usar
 
@@ -220,6 +258,6 @@ cada valor em vigor.
 python3 -m unittest discover -s tests -t tests
 ```
 
-284 testes, nenhum precisando de Qdrant, Ollama ou rede: as dependências
+289 testes, nenhum precisando de Qdrant, Ollama ou rede: as dependências
 externas entram como dublês (`tests/apoio.py`), o que só é possível porque as
 etapas dependem dos protocolos.

@@ -124,11 +124,27 @@ ollama pull qwen2.5:7b    # geração
 Use **podman**, não docker. Nesta máquina `docker` no PATH já é o shim do podman, e o podman roda
 rootless — os volumes usam a flag `:Z` do SELinux por causa disso.
 
-O `compose.yaml` também sobe a aplicação em container (`podman compose run --rm rag ...`), com um
-perfil `gpu` que inclui o cross-encoder de reordenação. **O Ollama fica no host**: ele já está
-configurado com a GPU, e containerizá-lo custaria uma imagem ROCm grande mais o re-download dos
-modelos. Para o container alcançá-lo, o serviço do host precisa de `OLLAMA_HOST=0.0.0.0` — está
-documentado no cabeçalho do `compose.yaml`.
+O `compose.yaml` também roda a aplicação em container. **O Ollama fica no host** — a GPU dele já
+está configurada, e containerizá-lo custaria a imagem ROCm mais o re-download dos modelos:
+
+```bash
+podman compose --profile execucao build rag && podman compose run --rm rag ambiente
+podman compose --profile gpu run --rm rag-gpu           # com reordenação
+```
+
+Três coisas que não são óbvias e custaram builds inteiros para descobrir:
+
+- **Os serviços `rag` usam rede do host.** O Ollama escuta em `127.0.0.1`, e com rede própria o
+  container não o enxergaria — seria preciso alterar o serviço do host. Compartilhando a rede,
+  a configuração padrão do código já serve e nada muda fora do repositório.
+- **O ROCm precisa de `/dev/dri` inteiro**, não só do `renderD*`, mais `keep-groups`. Sem isso
+  reporta zero GPUs mesmo com os dispositivos presentes.
+- **Nada de pesado depois do código no `Containerfile`.** `COPY src/`, `ENTRYPOINT` e `CMD` ficam
+  no fim de cada estágio; postos antes do `pip install torch`, faziam uma edição de uma linha
+  custar 6 GB de download.
+
+O código do host é montado no container (`./src:/app/src`), então editar não exige reconstruir.
+A contrapartida é que a imagem publicável fica defasada até o próximo build.
 
 `python3 main.py ambiente` diagnostica os dois serviços, os modelos, a dimensão da coleção e os
 artefatos de cada etapa. É o primeiro comando a rodar diante de qualquer erro.
@@ -180,6 +196,11 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   ganha 1 ponto de cobertura, a ~9× o tempo. Traduzir para o idioma do acervo é capacidade
   existente (`idioma_do_acervo` no frontmatter do marco), hoje sem nenhum marco que a declare.
   Antes de ajustar parâmetro dela, rode `main.py avaliar --comparar`.
+- **Reordenação e corte relativo não se misturam.** O corte por fração do topo pressupõe a lista
+  ordenada por cosseno; o cross-encoder ordena por outro critério, e o primeiro colocado pode ter
+  similaridade menor que o terceiro — a busca chegou a devolver 21 trechos com teto de 20. Com
+  reordenação vale o `k` fixo, e a decisão mora em `decidir_quantidade`, **uma função só** usada
+  pela busca direta e pela mediação. Estavam duplicadas, e um conserto valeu só num dos lados.
 - **O reordenador roda uma vez, sobre a lista fundida — nunca por sub-consulta.** Reordenar por
   sub-consulta multiplicaria o custo e julgaria contra a sub-consulta em vez de contra a pergunta
   original. Por isso `servico.py` dá o reordenador à mediação quando ela está ligada, e ao
@@ -246,7 +267,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-284 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+289 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,

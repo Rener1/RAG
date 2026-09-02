@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from .config import ConfigBusca, ConfigIntermediacao
 from .erros import ErroPipeline
-from .etapas.recuperacao import recortar_por_limiar_relativo
+from .etapas.recuperacao import decidir_quantidade
 from .modelos import TrechoRecuperado
 from .protocolos import Embutidor, Gerador, RecuperadorDeTrechos, Reordenador
 
@@ -418,24 +418,25 @@ class IntermediadorDeConsulta:
         # cinquenta — e cada julgamento seria contra uma sub-consulta em vez de
         # contra o que a pessoa de fato perguntou. Quem julga aqui é a pergunta
         # original, que é o critério certo.
+        reordenou = False
         if self._reordenador is not None:
             try:
                 fundidos = self._reordenador.reordenar(
                     pergunta, fundidos[: self._config_busca.candidatos_para_reordenar]
                 )
+                reordenou = True
             except (ErroPipeline, RuntimeError, ValueError):
+                # Falhou: a ordem continua sendo a do cosseno, então a política
+                # relativa volta a fazer sentido.
                 pass
 
         # A mesma política de quantidade da busca direta, e não um corte fixo em
         # `config_busca.k`. Cortar diferente aqui faria `avaliar --comparar`
         # medir onze trechos de um lado contra oito do outro, e a comparação
         # deixaria de dizer alguma coisa sobre a mediação.
-        if k is not None:
-            return fundidos[:k]
-        if self._config_busca.limiar_relativo > 0:
-            return recortar_por_limiar_relativo(
-                fundidos[: self._config_busca.k_maximo],
-                self._config_busca.limiar_relativo,
-                self._config_busca.k_minimo,
-            )
-        return fundidos[: self._config_busca.k]
+        return decidir_quantidade(
+            fundidos if reordenou else fundidos[: self._config_busca.k_maximo],
+            self._config_busca,
+            k,
+            reordenados=reordenou,
+        )
