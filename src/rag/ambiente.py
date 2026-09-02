@@ -9,6 +9,8 @@ devolve um estado e uma sugestão de conserto; nada é corrigido automaticamente
 from dataclasses import dataclass
 from enum import StrEnum
 
+from .acelerador import detectar as detectar_acelerador
+from .acelerador import torch_enxerga_a_gpu
 from .config import Config
 from .servico import Servico
 
@@ -63,6 +65,51 @@ def verificar(config: Config) -> list[Verificacao]:
             )
     else:
         itens.append(Verificacao("Ollama", Estado.FALHA, detalhe, "Suba o Ollama — os modelos rodam através dele."))
+
+    # ── acelerador ────────────────────────────────────────────────────────
+    # Sempre relatado, mesmo com a reordenação desligada: é o que decide qual
+    # `torch` instalar, e é a pergunta mais cara de responder errado.
+    acelerador = detectar_acelerador()
+    itens.append(
+        Verificacao(
+            "Acelerador",
+            Estado.AVISO if acelerador.aviso else Estado.OK,
+            f"{acelerador.detalhe} — torch de {acelerador.indice_torch.rsplit('/', 1)[-1]}",
+            acelerador.aviso,
+        )
+    )
+
+    # Se o torch está instalado, confere se ele **de fato** usa a GPU. Instalar o
+    # wheel do acelerador errado não dá erro nenhum: ele cai para CPU em
+    # silêncio, e a diferença só aparece no cronômetro.
+    usa_gpu, detalhe_torch = torch_enxerga_a_gpu()
+    if "não instalado" not in detalhe_torch:
+        combina = usa_gpu == acelerador.acelerado
+        itens.append(
+            Verificacao(
+                "PyTorch e a GPU",
+                Estado.OK if combina else Estado.AVISO,
+                detalhe_torch,
+                ""
+                if combina
+                else f"A máquina tem {acelerador.detalhe}, mas o torch instalado não a usa. "
+                f"Reinstale com --index-url {acelerador.indice_torch}",
+            )
+        )
+
+    # ── reordenação (opcional) ────────────────────────────────────────────
+    # Só diagnostica se estiver ligada: carregar o modelo custa segundos, e quem
+    # não usa a reordenação não deve pagar por isso a cada `ambiente`.
+    if config.busca.reordenar:
+        disponivel, detalhe = servico.reordenador.esta_disponivel()
+        itens.append(
+            Verificacao(
+                f"Reordenação ({config.reordenacao.modelo})",
+                Estado.OK if disponivel else Estado.FALHA,
+                detalhe,
+                "" if disponivel else "pip3 install -r requirements.txt, ou desligue com `--sem-reordenar`.",
+            )
+        )
 
     # ── banco vetorial ────────────────────────────────────────────────────
     disponivel, detalhe = servico.repositorio.esta_disponivel()

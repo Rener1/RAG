@@ -15,14 +15,15 @@ from functools import cached_property
 from pathlib import Path
 
 from . import marco as marco_pedagogico
-from .clientes import ClienteOllama, ColetorUESP, GeradorOllama, RepositorioQdrant
+from .clientes import ClienteOllama, ColetorUESP, GeradorOllama, ReordenadorLocal, RepositorioQdrant
 from .config import CONFIG, Config, ConfiguracaoCarregada
 from .etapas import RelatorProgresso, sem_progresso
 from .etapas import chunking as etapa_chunking
 from .etapas import download as etapa_download
 from .etapas import indexacao as etapa_indexacao
-from .etapas.geracao import montador_do_marco
+from .etapas.geracao import montador_do_marco, montar_prompt
 from .etapas.recuperacao import Recuperador
+from .lexico import IndiceLexico, RecuperadorHibrido
 from .marco import Marco
 from .mediacao import ConsultaDecomposta, IntermediadorDeConsulta
 from .modelos import ResultadoEtapa
@@ -45,6 +46,7 @@ class Servico:
         *,
         carregada: ConfiguracaoCarregada | None = None,
         ao_decompor: Callable[[ConsultaDecomposta], None] | None = None,
+        ao_ajustar_contexto: Callable[[int, int], None] | None = None,
     ) -> None:
         # `carregada` traz de onde veio cada valor (padrão, arquivo ou flag);
         # quem constrói só com `config` — testes, sobretudo — não precisa saber.
@@ -54,6 +56,7 @@ class Servico:
         # Fica como atributo, e não como import, para o núcleo não conhecer o
         # console — mesma disciplina do relator de progresso das etapas.
         self.ao_decompor: Callable[[ConsultaDecomposta], None] = ao_decompor or (lambda consulta: None)
+        self.ao_ajustar_contexto: Callable[[int, int], None] = ao_ajustar_contexto or (lambda recuperados, usados: None)
 
     # ── peças ─────────────────────────────────────────────────────────────
 
@@ -85,9 +88,59 @@ class Servico:
         return GeradorOllama(replace(self.config.geracao, temperatura=0.0, streaming=False))
 
     @cached_property
+    def reordenador(self) -> ReordenadorLocal:
+        """Cross-encoder que reordena os candidatos. Construído sob demanda."""
+        return ReordenadorLocal(self.config.reordenacao)
+
+    @cached_property
     def recuperador_base(self) -> Recuperador:
         """Busca vetorial direta, sem mediação. `buscar --sem-intermediar` usa esta."""
-        return Recuperador(self.embutidor, self.repositorio, self.config.busca)
+        # Com a mediação ligada, quem reordena é ela, depois de fundir — senão o
+        # reordenador rodaria uma vez por sub-consulta, multiplicando o custo e
+        # julgando contra a sub-consulta em vez de contra a pergunta original.
+        reordena_aqui = self.config.busca.reordenar and not self.config.intermediacao.ligada
+        return Recuperador(
+            self.embutidor,
+            self.repositorio,
+            self.config.busca,
+            reordenador=self.reordenador if reordena_aqui else None,
+        )
+
+    @cached_property
+    def indice_lexico(self) -> IndiceLexico:
+        """Índice BM25 sobre os chunks. Construído no primeiro uso, ~2 s."""
+        return IndiceLexico(self.config.caminhos.chunks)
+
+    @cached_property
+    def recuperador_denso_ou_hibrido(self) -> RecuperadorDeTrechos:
+        """A busca de base: densa, ou densa fundida com a léxica."""
+        if not self.config.busca.hibrido:
+            return self.recuperador_base
+        return RecuperadorHibrido(self.recuperador_base, self.indice_lexico, self.config.busca)
+
+    @cached_property
+    def recuperador_com_mediacao(self) -> IntermediadorDeConsulta:
+        """A camada de mediação, independente de estar ligada na configuração.
+
+        `avaliar --comparar` precisa das duas configurações na mesma execução —
+        é o único jeito de a comparação ser contra o mesmo índice e o mesmo
+        gabarito, que é o que a torna legítima.
+        """
+        return IntermediadorDeConsulta(
+            self.recuperador_denso_ou_hibrido,
+            self.gerador_de_apoio,
+            self.embutidor,
+            self.config.intermediacao,
+            self.config.busca,
+            # Encaminha em vez de capturar: assim trocar `servico.ao_decompor`
+            # depois da construção surte efeito. A avaliação silencia por aqui.
+            ao_decompor=lambda consulta: self.ao_decompor(consulta),
+            orientacao_do_marco=self.marco.secao("decomposicao") if self.marco else "",
+            # O idioma é do acervo, não da máquina, então mora no marco e viaja
+            # junto com `colecao_recomendada`. Trocar de corpus é trocar de marco.
+            idioma_do_acervo=self.marco.metadado("idioma_do_acervo") if self.marco else "",
+            reordenador=self.reordenador if self.config.busca.reordenar else None,
+        )
 
     @cached_property
     def recuperador(self) -> RecuperadorDeTrechos:
@@ -96,17 +149,9 @@ class Servico:
         O tipo é o protocolo, e não a classe: é o que permite empilhar o
         intermediador aqui sem que nada acima saiba da diferença.
         """
-        if not self.config.intermediacao.ligada:
-            return self.recuperador_base
-
-        return IntermediadorDeConsulta(
-            self.recuperador_base,
-            self.gerador_de_apoio,
-            self.config.intermediacao,
-            self.config.busca,
-            ao_decompor=self.ao_decompor,
-            orientacao_do_marco=self.marco.secao("decomposicao") if self.marco else "",
-        )
+        if self.config.intermediacao.ligada:
+            return self.recuperador_com_mediacao
+        return self.recuperador_denso_ou_hibrido
 
     @cached_property
     def marco(self) -> Marco | None:
@@ -120,11 +165,21 @@ class Servico:
             return None
         return marco_pedagogico.carregar(self.config.marco.ativo, self.config.caminhos.marcos)
 
+    @property
+    def orcamento_de_prompt(self) -> int:
+        """Tokens que o prompt pode ocupar: a janela menos a reserva da resposta."""
+        return max(0, self.config.geracao.num_ctx - self.config.geracao.reserva_para_resposta)
+
     @cached_property
     def motor(self) -> MotorRag:
-        if self.marco is None:
-            return MotorRag(self.recuperador, self.gerador)
-        return MotorRag(self.recuperador, self.gerador, montador_do_marco(self.marco))
+        montador = montar_prompt if self.marco is None else montador_do_marco(self.marco)
+        return MotorRag(
+            self.recuperador,
+            self.gerador,
+            montador,
+            orcamento_em_tokens=self.orcamento_de_prompt,
+            ao_ajustar_contexto=self.ao_ajustar_contexto,
+        )
 
     @cached_property
     def dialogo(self) -> Dialogo:
@@ -140,7 +195,7 @@ class Servico:
         self.config.marco.ativo = identificador
         # O recuperador entra na lista porque a orientação de decomposição vem
         # do marco: sem invalidá-lo, a busca continuaria seguindo o marco antigo.
-        for nome in ("marco", "motor", "recuperador", "dialogo"):
+        for nome in ("marco", "motor", "recuperador", "recuperador_com_mediacao", "dialogo"):  # noqa: E501
             self.__dict__.pop(nome, None)
         return self.marco
 

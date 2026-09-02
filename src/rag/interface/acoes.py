@@ -11,9 +11,12 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+from .. import avaliacao
 from .. import config as configuracao
 from .. import marco as marco_pedagogico
+from ..acelerador import detectar as detectar_acelerador
 from ..ambiente import Estado, pronto_para_perguntar, verificar
+from ..avaliacao import ResultadoDaAvaliacao
 from ..erros import ErroPipeline
 from ..etapas.geracao import validar_citacoes
 from ..mediacao import ConsultaDecomposta
@@ -161,6 +164,18 @@ def acao_indexar(servico: Servico, *, interativo: bool = True, recriar: bool = F
 # ── consulta ──────────────────────────────────────────────────────────────
 
 
+def avisar_ajuste_de_contexto(recuperados: int, usados: int) -> None:
+    """Diz quando trechos foram descartados para o prompt caber na janela.
+
+    Sem isto, quem pede `--k 12` e recebe 7 fontes não tem como saber se o
+    acervo tinha só 7 ou se 5 foram cortadas — e são coisas bem diferentes.
+    """
+    console.aviso(
+        f"{recuperados - usados} de {recuperados} trechos ficaram de fora: o prompt não caberia na janela do modelo."
+    )
+    console.detalhe("  → Para usar mais trechos, suba `geracao.num_ctx` (`python3 main.py config`).")
+
+
 def mostrar_subconsultas(consulta: ConsultaDecomposta) -> None:
     """Imprime o que a mediação decidiu buscar.
 
@@ -169,11 +184,21 @@ def mostrar_subconsultas(consulta: ConsultaDecomposta) -> None:
     reformulação seria uma caixa-preta entre a pergunta e o resultado.
     """
     if not consulta.houve_decomposicao:
-        if consulta.motivo_do_fallback and consulta.motivo_do_fallback != "mediação desligada":
+        if consulta.descartadas_por_redundancia:
+            console.detalhe(
+                f"  busca direta — as {consulta.descartadas_por_redundancia} variações propostas "
+                "traziam o mesmo material"
+            )
+        elif consulta.motivo_do_fallback and consulta.motivo_do_fallback != "mediação desligada":
             console.detalhe(f"  busca direta — {consulta.motivo_do_fallback}")
         return
 
-    console.info(f"\nBuscando {len(consulta.subconsultas)} consultas:")
+    descartadas = (
+        f" ({consulta.descartadas_por_redundancia} redundante(s) descartada(s))"
+        if consulta.descartadas_por_redundancia
+        else ""
+    )
+    console.info(f"\nBuscando {len(consulta.subconsultas)} consultas{descartadas}:")
     for subconsulta in consulta.subconsultas:
         # A primeira pode ser a consulta consolidada de uma sessão, que tem mais
         # de uma linha — sem colapsar, a listagem perde o alinhamento.
@@ -321,6 +346,144 @@ def acao_dialogar(servico: Servico, pergunta: str, k: int | None = None) -> bool
     return resultado
 
 
+# ── avaliação ─────────────────────────────────────────────────────────────
+
+
+def _linha_de_metricas(resultado: ResultadoDaAvaliacao) -> str:
+    trechos = f"  trechos/caso={resultado.trechos_por_caso:.1f}" if resultado.k is None else ""
+    return (
+        f"recall{resultado.descricao_do_k}={resultado.recall:.0%}  "
+        f"cobertura={resultado.cobertura_media:.0%}  "
+        f"mrr={resultado.mrr:.3f}{trechos}  ({resultado.segundos:.1f}s)"
+    )
+
+
+def _mostrar_por_tipo(resultado: ResultadoDaAvaliacao) -> None:
+    for tipo, (quantidade, recall) in resultado.por_tipo().items():
+        console.detalhe(f"    {tipo:<16} {quantidade:>3} casos   recall={recall:.0%}")
+
+
+def acao_avaliar(
+    servico: Servico,
+    k: int | None = None,
+    comparar_configuracoes: bool = False,
+    caminho_dos_casos: Path | None = None,
+) -> bool:
+    """Mede a recuperação contra o gabarito. Não gera texto — só camada 1.
+
+    A qualidade da resposta não é medida aqui de propósito: é rubrica humana
+    (`docs/fase-3-avaliacao-e-servidor.md` §5), e métrica automática não pega o
+    modo de falha que importa.
+    """
+    caminho = caminho_dos_casos or servico.config.caminhos.casos_de_avaliacao
+    # `None` entrega a decisão à política de busca — é assim que o `k` dinâmico
+    # fica mensurável. Com `--k N`, o número pedido vale, que é o que a varredura
+    # de `k` precisa para ser comparável.
+    dinamico = servico.config.busca.limiar_relativo > 0
+    k_efetivo = k if k is not None else (None if dinamico else servico.config.busca.k)
+
+    try:
+        casos = avaliacao.carregar_casos(caminho)
+    except ErroPipeline as erro:
+        console.erro_do_pipeline(erro)
+        return False
+
+    console.titulo("Avaliação da recuperação")
+    descricao = (
+        f"k dinâmico (>= {servico.config.busca.limiar_relativo:.2f} do topo, "
+        f"entre {servico.config.busca.k_minimo} e {servico.config.busca.k_maximo})"
+        if k_efetivo is None
+        else f"k={k_efetivo}"
+    )
+    console.detalhe(f"{len(casos)} casos de {caminho.name}, {descricao}")
+
+    # Quarenta decomposições impressas afogariam o resultado, que é o que
+    # interessa aqui. A barra de progresso já diz que algo está acontecendo.
+    relator_anterior = servico.ao_decompor
+    servico.ao_decompor = lambda consulta: None
+
+    def medir(recuperador, rotulo: str):
+        progresso = console.Progresso(rotulo)
+        try:
+            return avaliacao.avaliar(casos, recuperador, k_efetivo, rotulo, progresso=progresso)
+        finally:
+            progresso.encerrar()
+
+    try:
+        if not comparar_configuracoes:
+            resultado = medir(servico.recuperador, "avaliando")
+            console.secao("Resultado")
+            console.info(f"  {_linha_de_metricas(resultado)}")
+            _mostrar_por_tipo(resultado)
+            return True
+
+        base = medir(servico.recuperador_base, "busca direta")
+        mediada = medir(servico.recuperador_com_mediacao, "com mediação")
+    except ErroPipeline as erro:
+        console.erro_do_pipeline(erro)
+        return False
+    finally:
+        servico.ao_decompor = relator_anterior
+
+    console.secao("Comparação")
+    console.info(f"  busca direta   {_linha_de_metricas(base)}")
+    _mostrar_por_tipo(base)
+    console.info(f"\n  com mediação   {_linha_de_metricas(mediada)}")
+    _mostrar_por_tipo(mediada)
+
+    delta = mediada.recall - base.recall
+    veredito = "mediação à frente" if delta > 0 else ("empate" if delta == 0 else "busca direta à frente")
+    console.info(f"\n  diferença de recall: {delta:+.1%} — {veredito}")
+
+    mudancas = avaliacao.comparar(base, mediada)
+    if mudancas:
+        console.secao("Casos que mudaram de posição")
+        for caso, antes, depois in mudancas[:12]:
+            console.detalhe(f"  {caso.identificador:<9} {_posicao(antes)} -> {_posicao(depois)}   {caso.demanda[:52]}")
+        if len(mudancas) > 12:
+            console.detalhe(f"  ... e mais {len(mudancas) - 12}")
+    else:
+        console.detalhe("\n  Nenhum caso mudou de posição.")
+
+    return True
+
+
+def _posicao(valor: int | None) -> str:
+    return "não achou" if valor is None else f"#{valor}"
+
+
+def acao_acelerador(indice_apenas: bool = False) -> bool:
+    """Diz qual build de `torch` esta máquina precisa.
+
+    Existe como comando porque a resposta é necessária **antes** de qualquer
+    instalação — na hora de construir a imagem — e porque errar custa o download
+    inteiro: o wheel do acelerador errado instala sem reclamar e cai para CPU em
+    silêncio.
+    """
+    acelerador = detectar_acelerador()
+
+    if indice_apenas:
+        # Saída limpa, para `--build-arg TORCH_INDEX=$(...)`.
+        print(acelerador.indice_torch)
+        return True
+
+    console.titulo("Acelerador desta máquina")
+    console.info(f"  detectado: {acelerador.detalhe}")
+    console.info(f"  tipo:      {acelerador.tipo}")
+    console.info(f"  índice:    {acelerador.indice_torch}")
+    if acelerador.aviso:
+        console.aviso(acelerador.aviso)
+
+    if acelerador.acelerado:
+        console.detalhe("\n  Para construir a imagem com reordenação acelerada:")
+        console.detalhe("    podman compose --profile gpu build rag-gpu")
+    else:
+        console.detalhe("\n  Sem acelerador, a reordenação roda em CPU e custa segundos por consulta.")
+        console.detalhe("  O restante do pipeline não depende dela.")
+
+    return True
+
+
 # ── marco pedagógico ──────────────────────────────────────────────────────
 
 
@@ -396,6 +559,18 @@ def _avisar_colecao_do_marco(servico: Servico) -> None:
 # ── configuração ──────────────────────────────────────────────────────────
 
 
+def _campo_inerte(config, nome_secao: str, campo: str) -> str:
+    """Marca campo que está na configuração mas não tem efeito no estado atual.
+
+    Existe por causa de um par específico: com `limiar_relativo` ligado, a
+    quantidade de trechos é decidida por ele e `k` deixa de valer. Sem esta
+    marca, quem ajustasse `k` esperando efeito não teria como descobrir por quê.
+    """
+    if nome_secao == "busca" and campo == "k" and config.busca.limiar_relativo > 0:
+        return f"  {console.APAGADO}(sem efeito: limiar_relativo decide a quantidade){console.NORMAL}"
+    return ""
+
+
 def acao_mostrar_config(servico: Servico) -> None:
     """Mostra a configuração em vigor e a procedência de cada valor.
 
@@ -421,7 +596,8 @@ def acao_mostrar_config(servico: Servico) -> None:
         for campo in config.campos_editaveis(nome_secao):
             origem = origens[(nome_secao, campo)]
             marca = "" if origem == "padrão" else f"  {console.APAGADO}({origem}){console.NORMAL}"
-            console.info(f"  {campo:20} {getattr(secao, campo)}{marca}")
+            inerte = _campo_inerte(config, nome_secao, campo)
+            console.info(f"  {campo:20} {getattr(secao, campo)}{marca}{inerte}")
 
     console.detalhe("\nAlterações valem só para esta execução até serem gravadas com `config --salvar`.")
 

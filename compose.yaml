@@ -1,0 +1,96 @@
+# Sobe o ambiente do projeto: `podman compose up -d`.
+#
+# O Ollama fica no host, e não aqui: ele já está configurado com a GPU, e
+# containerizá-lo custaria uma imagem ROCm grande mais o re-download dos
+# modelos, sem ganho nenhum.
+#
+# Os serviços `rag` usam **rede do host**. Não é preguiça: o Ollama escuta em
+# 127.0.0.1:11434, e com rede própria o container não o enxergaria — seria
+# preciso reconfigurar o serviço do host (`OLLAMA_HOST=0.0.0.0`), uma alteração
+# de sistema fora deste repositório. Compartilhando a rede, `localhost` vale
+# para os dois lados e a configuração padrão do código já serve.
+#
+# Para rodar a aplicação numa máquina e os serviços noutra, troque
+# `network_mode: host` por `networks:` e aponte os endereços em `config.toml`.
+
+services:
+  qdrant:
+    image: docker.io/qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"   # API REST + painel web (http://localhost:6333/dashboard)
+      - "6334:6334"   # API gRPC
+    volumes:
+      - ./data/qdrant_storage:/qdrant/storage:Z
+    restart: unless-stopped
+
+  rag:
+    build:
+      context: .
+      dockerfile: Containerfile
+      target: execucao      # troque para `reordenacao` para incluir o cross-encoder
+    image: localhost/rag:base
+    depends_on:
+      - qdrant
+    network_mode: host
+    volumes:
+      # O código vem do host, não da imagem. É o fluxo combinado — desenvolver
+      # no host, executar no container — e evita reconstruir a cada edição.
+      # Para uma imagem autocontida, distribuível, tire estas duas linhas e
+      # reconstrua: o `Containerfile` já copia `main.py` e `src/`.
+      - ./main.py:/app/main.py:ro,Z
+      - ./src:/app/src:ro,Z
+      - ./data:/app/data:Z
+      - ./marcos:/app/marcos:Z
+      - ./avaliacao:/app/avaliacao:Z
+    # Não sobe sozinho: é um executor, não um serviço. Sem argumento abre o
+    # menu, como no host; com argumento, executa o subcomando:
+    #   podman compose run --rm rag                     -> menu
+    #   podman compose run --rm rag buscar "..."        -> uma busca
+    profiles: ["execucao"]
+
+  # Mesmo serviço com o cross-encoder e a GPU AMD. Os dispositivos são
+  # world-readable nesta máquina, então funciona com podman rootless.
+  # Constrói com o índice que ESTA máquina precisa:
+  #   TORCH_INDEX=$(python3 main.py acelerador --indice) \
+  #     podman compose --profile gpu build rag-gpu
+  # Sem a variável, cai no build de CPU, que roda em qualquer hardware.
+  rag-gpu:
+    build:
+      context: .
+      dockerfile: Containerfile
+      target: reordenacao
+      args:
+        TORCH_INDEX: ${TORCH_INDEX:-https://download.pytorch.org/whl/cpu}
+    image: localhost/rag:reordenacao
+    depends_on:
+      - qdrant
+    network_mode: host
+    devices:
+      # `/dev/dri` inteiro, e não só o `renderD*`: o ROCm enumera as placas pelos
+      # nós `card*` junto com a topologia em /sys, e com só o render ele
+      # reportava zero GPUs mesmo com os dispositivos presentes.
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      # Sem isto o processo dentro do container perde os grupos do host
+      # (`video`, `render`) e não abre os nós da placa.
+      - keep-groups
+    security_opt:
+      - label=disable        # SELinux: o passthrough de GPU exige
+    environment:
+      # A máquina tem duas GPUs — a discreta e a integrada do Ryzen. A integrada
+      # (gfx1036) não é suportada pelo ROCm 7.2; fixar o dispositivo 0 evita que
+      # o torch escolha a errada.
+      HIP_VISIBLE_DEVICES: "0"
+    volumes:
+      # O código vem do host, não da imagem. É o fluxo combinado — desenvolver
+      # no host, executar no container — e evita reconstruir a cada edição.
+      # Para uma imagem autocontida, distribuível, tire estas duas linhas e
+      # reconstrua: o `Containerfile` já copia `main.py` e `src/`.
+      - ./main.py:/app/main.py:ro,Z
+      - ./src:/app/src:ro,Z
+      - ./data:/app/data:Z
+      - ./marcos:/app/marcos:Z
+      - ./avaliacao:/app/avaliacao:Z
+    profiles: ["gpu"]

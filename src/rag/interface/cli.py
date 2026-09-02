@@ -34,10 +34,12 @@ exemplos:
   python3 main.py indexar --recriar        reindexa do zero
   python3 main.py buscar "quem são os argonianos?"
   python3 main.py buscar "..." --sem-intermediar    busca sem reformular a pergunta
+  python3 main.py buscar "..." --k-dinamico 0.9    quantidade de trechos conforme a pergunta
   python3 main.py perguntar "o que foi a crise de oblivion?" --k 8
   python3 main.py perguntar                modo conversa, uma pergunta por linha
   python3 main.py perguntar "..." --direto  responde sem problematizar
   python3 main.py config --salvar          persiste a configuração atual em config.toml
+  python3 main.py avaliar --comparar               mede a recuperação com e sem mediação
   python3 main.py marcos                   lista os marcos pedagógicos
   python3 main.py --marco freiriano perguntar "..."
 """
@@ -116,12 +118,22 @@ def construir_parser() -> argparse.ArgumentParser:
     for nome, ajuda in (("buscar", "etapa 4 — só recuperação"), ("perguntar", "etapa 5 — ciclo RAG completo")):
         p = novo_subcomando(nome, ajuda)
         p.add_argument("pergunta", nargs="*", help="a pergunta; sem ela, entra em modo conversa")
-        p.add_argument("--k", type=int, help="quantos trechos recuperar")
+        p.add_argument("--k", type=int, help="quantos trechos recuperar (fixo)")
+        p.add_argument(
+            "--k-dinamico",
+            type=float,
+            metavar="FRACAO",
+            help="quantidade dinâmica: mantém o que pontuar acima desta fração do 1º colocado (ex.: 0.9)",
+        )
         p.add_argument(
             "--sem-intermediar",
             action="store_true",
             help="busca a pergunta como foi escrita, sem reformular nem decompor",
         )
+        p.add_argument("--reordenar", action="store_true", help="reordena os candidatos por cross-encoder")
+        p.add_argument("--sem-reordenar", action="store_true", help="desliga a reordenação")
+        p.add_argument("--hibrido", action="store_true", help="funde a busca densa com BM25 léxico")
+        p.add_argument("--sem-hibrido", action="store_true", help="desliga a fusão léxica")
         if nome == "perguntar":
             p.add_argument("--dialogo", action="store_true", help="força a problematização antes de responder")
             p.add_argument("--direto", action="store_true", help="responde de uma vez, sem problematizar")
@@ -129,6 +141,29 @@ def construir_parser() -> argparse.ArgumentParser:
     p_config = novo_subcomando("config", "mostra a configuração em vigor")
     p_config.add_argument("--salvar", action="store_true", help="grava em config.toml o que difere do padrão")
     p_config.add_argument("--caminho", action="store_true", help="imprime onde fica o arquivo de configuração")
+    p_avaliar = novo_subcomando("avaliar", "mede a recuperação contra o gabarito (camada 4)")
+    p_avaliar.add_argument("--k", type=int, help="quantos trechos recuperar por caso (fixo)")
+    p_avaliar.add_argument(
+        "--k-dinamico",
+        type=float,
+        metavar="FRACAO",
+        help="mede a política de quantidade dinâmica em vez do k fixo",
+    )
+    p_avaliar.add_argument("--comparar", action="store_true", help="roda com e sem mediação e compara lado a lado")
+    p_avaliar.add_argument("--casos", help="outro gabarito (padrão: avaliacao/casos.jsonl)")
+    p_avaliar.add_argument("--sem-intermediar", action="store_true", help="mede só a busca direta, sem mediação")
+    p_avaliar.add_argument("--reordenar", action="store_true", help="mede com reordenação por cross-encoder")
+    p_avaliar.add_argument("--sem-reordenar", action="store_true", help="mede sem reordenação")
+    p_avaliar.add_argument("--hibrido", action="store_true", help="mede com fusão léxica BM25")
+    p_avaliar.add_argument("--sem-hibrido", action="store_true", help="mede sem fusão léxica")
+
+    p_acelerador = novo_subcomando("acelerador", "diz qual torch esta máquina precisa")
+    p_acelerador.add_argument(
+        "--indice",
+        action="store_true",
+        help="imprime só a URL do índice, para usar em --build-arg",
+    )
+
     novo_subcomando("marcos", "lista os marcos pedagógicos disponíveis")
     novo_subcomando("menu", "abre o menu interativo (padrão)")
 
@@ -158,6 +193,16 @@ def _aplicar_opcoes_globais(argumentos: argparse.Namespace, config: Config) -> N
         config.chunking.estrategia = argumentos.estrategia
     if getattr(argumentos, "sem_intermediar", False):
         config.intermediacao.ligada = False
+    if getattr(argumentos, "k_dinamico", None) is not None:
+        config.busca.limiar_relativo = argumentos.k_dinamico
+    if getattr(argumentos, "reordenar", False):
+        config.busca.reordenar = True
+    if getattr(argumentos, "sem_reordenar", False):
+        config.busca.reordenar = False
+    if getattr(argumentos, "hibrido", False):
+        config.busca.hibrido = True
+    if getattr(argumentos, "sem_hibrido", False):
+        config.busca.hibrido = False
     if argumentos.sem_cor:
         console.desligar_cores()
 
@@ -219,7 +264,11 @@ def principal(argv: list[str] | None = None) -> int:
     carregada = configuracao.carregar(argumentos.config, usar_arquivo=not argumentos.sem_config)
     config = carregada.config
     _aplicar_opcoes_globais(argumentos, config)
-    servico = Servico(carregada=carregada, ao_decompor=acoes.mostrar_subconsultas)
+    servico = Servico(
+        carregada=carregada,
+        ao_decompor=acoes.mostrar_subconsultas,
+        ao_ajustar_contexto=acoes.avisar_ajuste_de_contexto,
+    )
 
     comando = argumentos.comando or "menu"
 
@@ -251,6 +300,19 @@ def principal(argv: list[str] | None = None) -> int:
             return 0 if sucesso else 1
         if comando in {"buscar", "perguntar"}:
             return 0 if _consultar(servico, argumentos, comando) else 1
+        if comando == "avaliar":
+            return (
+                0
+                if acoes.acao_avaliar(
+                    servico,
+                    k=argumentos.k,
+                    comparar_configuracoes=argumentos.comparar,
+                    caminho_dos_casos=Path(argumentos.casos) if argumentos.casos else None,
+                )
+                else 1
+            )
+        if comando == "acelerador":
+            return 0 if acoes.acao_acelerador(indice_apenas=argumentos.indice) else 1
         if comando == "marcos":
             return 0 if acoes.acao_listar_marcos(servico) else 1
         if comando == "config":

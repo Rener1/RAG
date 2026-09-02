@@ -7,6 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Protótipo da **Fase 2** do projeto IA Freiriana (Instituto Paulo Freire): um pipeline RAG local
 completo — download de corpus → chunking → embedding/indexação → recuperação → geração.
 
+**Onde o desenvolvimento está:** `@docs/estado-do-desenvolvimento.md` — o que está pronto, o que é
+provisório, o que falta e as medições em vigor. É o primeiro doc a ler, e o que atualizar quando
+alguma dessas coisas mudar.
+
 O plano por fases está em `docs/`. Leia sob demanda, não preventivamente:
 `@docs/00-plano-geral-implementacao.md`
 
@@ -38,6 +42,8 @@ python3 main.py chunking           # --saida OUTRO.jsonl para não destruir o ch
 python3 main.py indexar            # retoma de onde parou; --recriar para refazer
 python3 main.py buscar "..."       # só recuperação; --sem-intermediar desliga a mediação
 python3 main.py perguntar "..."    # ciclo RAG completo; --direto pula a problematização
+python3 main.py avaliar --comparar # recall@k com e sem mediação (não gera texto)
+python3 main.py acelerador         # qual torch esta máquina precisa (para o build)
 python3 main.py marcos             # marcos pedagógicos disponíveis
 python3 main.py config             # configuração em vigor, com a origem de cada valor
 ```
@@ -59,15 +65,18 @@ src/rag/
   marco.py           carrega e valida os marcos
   mediacao.py        IntermediadorDeConsulta — reformula, decompõe e funde (RRF)
   sessao.py          Dialogo — a máquina de estados que problematiza antes de responder
+  avaliacao.py       recall@k contra o gabarito de avaliacao/casos.jsonl
+  acelerador.py      detecta GPU e diz qual build de torch instalar
+  lexico.py          BM25 e a fusão dele com a busca densa (desligado por padrão)
   servico.py         onde as implementações concretas encontram os protocolos
   clientes/          Ollama, Qdrant, UESP, sessão HTTP com repetição
   etapas/            download, chunking, indexacao, recuperacao, geracao
   interface/         console, menu, cli, acoes
 ```
 
-`marco.py`, `mediacao.py` e `sessao.py` ficam na raiz do pacote, **nunca em `etapas/`**, pelo
-mesmo motivo de `orquestrador.py`: cada um compõe recuperação com geração, e pôr qualquer um
-deles em `etapas/` obrigaria uma etapa a importar outra. As três camadas se empilham sem que
+`marco.py`, `mediacao.py`, `sessao.py` e `avaliacao.py` ficam na raiz do pacote, **nunca em
+`etapas/`**, pelo mesmo motivo de `orquestrador.py`: cada um compõe recuperação com geração, e pôr
+qualquer um deles em `etapas/` obrigaria uma etapa a importar outra. As três camadas se empilham sem que
 nenhuma conheça as outras:
 
 ```
@@ -112,8 +121,14 @@ ollama pull bge-m3        # embedding, 1024 dimensões
 ollama pull qwen2.5:7b    # geração
 ```
 
-Use **podman**, não docker — o arquivo se chama `docker-compose.yml` por convenção de nome apenas,
-e o volume usa a flag `:Z` do SELinux.
+Use **podman**, não docker. Nesta máquina `docker` no PATH já é o shim do podman, e o podman roda
+rootless — os volumes usam a flag `:Z` do SELinux por causa disso.
+
+O `compose.yaml` também sobe a aplicação em container (`podman compose run --rm rag ...`), com um
+perfil `gpu` que inclui o cross-encoder de reordenação. **O Ollama fica no host**: ele já está
+configurado com a GPU, e containerizá-lo custaria uma imagem ROCm grande mais o re-download dos
+modelos. Para o container alcançá-lo, o serviço do host precisa de `OLLAMA_HOST=0.0.0.0` — está
+documentado no cabeçalho do `compose.yaml`.
 
 `python3 main.py ambiente` diagnostica os dois serviços, os modelos, a dimensão da coleção e os
 artefatos de cada etapa. É o primeiro comando a rodar diante de qualquer erro.
@@ -138,6 +153,52 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 - **`montar_prompt()` em `etapas/geracao.py` é o caminho sem marco**, usado só quando
   `marco.ativo` está vazio. O caminho normal é `montador_do_marco()`. Não "melhore" o texto
   genérico dali: comportamento se ajusta editando `marcos/*.md`, que é o ponto todo.
+- **A avaliação mede recuperação, não geração — e isso é deliberado.** `docs/fase-3` §7 separa as
+  duas porque "recuperação ruim e geração ruim têm correções opostas". A qualidade da resposta é
+  rubrica humana (§5), e LLM como juiz premia o "freirês" que deveria pegar (§8). Não acrescente
+  métrica automática de qualidade textual a `avaliacao.py`.
+- **`recall@k` não é o que chega ao modelo — confira os dois.** O harness mede recuperação sem
+  gerar texto; o orçamento de contexto pode descartar trechos depois. Conferido: em `k = 8`,
+  `k = 12` e nas políticas dinâmicas, zero dos 40 casos sofrem corte, então os números batem. Em
+  `k = 20`, dois casos são cortados. Ao mexer em `k`, em `num_ctx` ou no tamanho do marco, refaça
+  essa conferência — está descrita em `docs/estado-do-desenvolvimento.md`.
+- **O gabarito de `avaliacao/casos.jsonl` mede o avaliador junto com o sistema.** Já houve um
+  defeito real: as páginas esperadas foram escritas do modelo mental do domínio, ignorando as
+  páginas-índice do acervo (`Lore:Races`, `Lore:Religions`), e seis casos cobravam a página
+  errada — o recall aparecia 5 pontos abaixo do real. Ao acrescentar caso, confira o título
+  contra o índice **e** se é mesmo a melhor página para aquela pergunta. E nunca ajuste o
+  gabarito para o que o buscador devolveu: isso transforma a métrica em espelho.
+- **A folga do prompt é do marco, não dos trechos.** O `generico` tem 975 caracteres; em `k = 8`
+  cabem ~13.500 antes de custar trecho recuperado, e em `k = 20` cabem ~1.600. É a razão mais
+  concreta para `k` não ser maior, e ela não aparece em métrica de recuperação nenhuma.
+- **Corte por score absoluto não funciona neste corpus, e `score_minimo` fica em 0 por isso.**
+  Trecho relevante e irrelevante têm a mesma faixa de score (medianas 0,552 e 0,551), e valores
+  altos o bastante para filtrar deixam perguntas sem resultado nenhum (dez de quarenta em 0,60).
+  A alternativa que funciona é `busca.limiar_relativo`, relativo ao topo de cada pergunta —
+  desligada por padrão, medida em `docs/estado-do-desenvolvimento.md`.
+- **A mediação decompõe pergunta composta, e só isso.** Empata em recall com a busca direta e
+  ganha 1 ponto de cobertura, a ~9× o tempo. Traduzir para o idioma do acervo é capacidade
+  existente (`idioma_do_acervo` no frontmatter do marco), hoje sem nenhum marco que a declare.
+  Antes de ajustar parâmetro dela, rode `main.py avaliar --comparar`.
+- **O reordenador roda uma vez, sobre a lista fundida — nunca por sub-consulta.** Reordenar por
+  sub-consulta multiplicaria o custo e julgaria contra a sub-consulta em vez de contra a pergunta
+  original. Por isso `servico.py` dá o reordenador à mediação quando ela está ligada, e ao
+  `Recuperador` quando não está — nunca aos dois.
+- **`torch` tem builds incompatíveis por acelerador**, e o errado instala em silêncio e cai para
+  CPU. `main.py acelerador --indice` diz qual esta máquina precisa; o `Containerfile` recebe por
+  `--build-arg` e **falha o build** se o acelerador pedido não aparecer.
+- **BM25 híbrido (`rag/lexico.py`) depende do idioma e do peso do RRF.** Sem tradução ele piora
+  (88% denso contra 85% híbrido); com a mediação traduzindo, melhora (90% contra 92%). `peso_denso`
+  precisa ser ≥2 — com voto igual o esparso arrasta o denso para baixo. E **os scores léxicos são
+  reescalados para a faixa do denso**: cosseno fica em ~0,6 e BM25 passa de 10, e a política de
+  quantidade dinâmica corta por fração do topo. Desligado por padrão.
+- **Não suba `intermediacao.limiar_de_redundancia` sem refazer a medição.** As faixas de cosseno
+  de consultas redundantes e distintas se sobrepõem (0,620–0,988 contra 0,664–0,893), então o
+  limiar alto é escolha informada, não descuido. Quem reduz o número de sub-consultas é o prompt.
+- **`num_ctx` precisa ser explícito.** Sem ele o Ollama usa 4096 e trunca o prompt em silêncio,
+  mesmo com o modelo aceitando 32768. O orçamento de trechos sai de `num_ctx - reserva_para_resposta`
+  e é aplicado no `MotorRag`, não no montador — a lista devolvida à interface tem de ser a mesma
+  que foi ao modelo, senão `validar_citacoes` aprova fonte que o modelo nunca viu.
 - **A mediação custa uma chamada ao modelo por pergunta.** `IntermediadorDeConsulta` reformula e
   decompõe antes de embutir. Para medir `recall@k` sem esse custo — e para comparar contra a
   linha de base — use `buscar --sem-intermediar`. Qualquer tropeço dela (modelo fora do ar, saída
@@ -185,7 +246,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-158 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+284 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,

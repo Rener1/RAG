@@ -64,11 +64,14 @@ class TestIdaEVolta(unittest.TestCase):
     def test_o_arquivo_gravado_so_tem_as_diferencas(self):
         with tempfile.TemporaryDirectory() as pasta:
             config = Config()
-            config.busca.k = 8
+            # Um valor que não pode ser o padrão, senão o teste passa por engano
+            # quando o padrão mudar para ele.
+            config.busca.k = 11
+            self.assertNotEqual(Config().busca.k, 11, "escolha outro valor: este virou o padrão")
             texto = configuracao.salvar(config, Path(pasta) / "config.toml").read_text(encoding="utf-8")
 
             self.assertIn("[busca]", texto)
-            self.assertIn("k = 8", texto)
+            self.assertIn("k = 11", texto)
             self.assertNotIn("[embedding]", texto)
             self.assertNotIn("score_minimo", texto)
 

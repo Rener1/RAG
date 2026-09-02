@@ -2,6 +2,7 @@
 
 from .ollama import ClienteOllama, GeradorOllama
 from .qdrant import RepositorioQdrant
+from .reordenador import ReordenadorLocal
 from .uesp import ColetorUESP
 
-__all__ = ["ClienteOllama", "ColetorUESP", "GeradorOllama", "RepositorioQdrant"]
+__all__ = ["ClienteOllama", "ColetorUESP", "GeradorOllama", "ReordenadorLocal", "RepositorioQdrant"]

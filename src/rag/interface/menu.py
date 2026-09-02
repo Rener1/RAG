@@ -87,6 +87,12 @@ def _laco_de_consulta(servico: Servico, modo: str) -> None:
         executar(servico, pergunta)
 
 
+def _avaliar(servico: Servico) -> None:
+    """Avaliação pelo menu, com a comparação como oferta explícita."""
+    comparar = console.confirmar("Comparar com e sem mediação? (roda o gabarito duas vezes)", padrao=True)
+    acoes.acao_avaliar(servico, comparar_configuracoes=comparar)
+
+
 def _escolher_marco(servico: Servico) -> None:
     """Lista os marcos e troca o ativo para esta execução."""
     acoes.acao_listar_marcos(servico)
@@ -150,8 +156,9 @@ def executar(servico: Servico) -> int:
         Opcao("5", "Buscar", lambda: _laco_de_consulta(servico, "buscar"), "etapa 4 — só recuperação"),
         Opcao("6", "Perguntar", lambda: _laco_de_consulta(servico, "perguntar"), "etapa 5 — resposta direta"),
         Opcao("7", "Dialogar", lambda: _laco_de_consulta(servico, "dialogar"), "problematiza antes de responder"),
-        Opcao("8", "Marco pedagógico", lambda: _escolher_marco(servico), "ver e trocar o marco ativo"),
-        Opcao("9", "Configuração", lambda: _editar_configuracao(servico), "ver, ajustar e salvar parâmetros"),
+        Opcao("8", "Avaliar", lambda: _avaliar(servico), "mede a recuperação contra o gabarito"),
+        Opcao("9", "Marco pedagógico", lambda: _escolher_marco(servico), "ver e trocar o marco ativo"),
+        Opcao("c", "Configuração", lambda: _editar_configuracao(servico), "ver, ajustar e salvar parâmetros"),
     ]
     por_tecla = {opcao.tecla: opcao for opcao in opcoes}
 

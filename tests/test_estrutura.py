@@ -23,7 +23,7 @@ PASTA_ETAPAS = RAIZ / "src" / "rag" / "etapas"
 
 # Módulos que compõem etapas com geração — o lugar deles é a raiz do pacote,
 # ao lado de `orquestrador.py`, pelo motivo que o cabeçalho dele explica.
-MODULOS_DE_COMPOSICAO = ("marco.py", "mediacao.py", "sessao.py")
+MODULOS_DE_COMPOSICAO = ("marco.py", "mediacao.py", "sessao.py", "avaliacao.py", "lexico.py")
 
 
 def _modulos_de_etapa() -> set[str]:

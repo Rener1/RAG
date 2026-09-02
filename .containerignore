@@ -1,0 +1,11 @@
+# `data/` é o artefato pesado do projeto — corpus, chunks e o storage do Qdrant.
+# Entra por montagem, nunca no contexto de build.
+data/
+.git/
+__pycache__/
+**/__pycache__/
+.ruff_cache/
+*.pyc
+config.toml
+docs/
+tests/

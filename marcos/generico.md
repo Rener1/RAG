@@ -4,6 +4,7 @@ versao: 1
 autoria: equipe técnica — provisório, não é o marco pedagógico
 data: 2026-08-29
 colecao_recomendada: uesp_lore
+idioma_do_acervo: en
 problematizar: sim
 ---
 

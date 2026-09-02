@@ -15,11 +15,19 @@ Esta etapa depende do protocolo `MarcoPedagogico`, não do módulo que lê os
 arquivos: ela não precisa saber de onde o marco veio nem como foi analisado.
 """
 
+import math
 import re
 from collections.abc import Callable
 
 from ..modelos import TrechoRecuperado
 from ..protocolos import MarcoPedagogico
+
+# Calibrado contra o `prompt_eval_count` que o Ollama devolve, em prompts reais
+# deste pipeline (marco em português + trechos em inglês): 4,06 chars/token com
+# k=3 e 4,17 com k=8. Arredondado para baixo de propósito — subestimar a razão
+# superestima os tokens, e errar para o lado de sobrar janela é o lado barato.
+# O Ollama não expõe `/api/tokenize` (404), então estimar é o que há.
+CHARS_POR_TOKEN = 4.0
 
 # Casa "Fonte 3" em qualquer lugar, e não só um colchete inteiro: o modelo
 # agrupa várias fontes num colchete só ("[Fonte 1: X, Fonte 2: Y]") com
@@ -27,10 +35,80 @@ from ..protocolos import MarcoPedagogico
 PADRAO_CITACAO = re.compile(r"\bFonte\s+(\d+)", re.IGNORECASE)
 
 
+def estimar_tokens(texto: str) -> int:
+    """Estimativa conservadora do custo em tokens de um texto."""
+    return math.ceil(len(texto) / CHARS_POR_TOKEN)
+
+
+def caber_no_orcamento(
+    trechos: list[TrechoRecuperado],
+    orcamento_em_tokens: int,
+    tokens_de_overhead: int = 0,
+) -> list[TrechoRecuperado]:
+    """Os trechos que cabem no orçamento, descartando do fim da lista para trás.
+
+    **Trecho inteiro ou trecho nenhum — nunca cortado no meio.** Uma fonte
+    citada pela metade é pior que uma fonte ausente: quem lê não tem como saber
+    que o que fundamenta a afirmação foi embora, e a citação verificável que o
+    marco exige deixa de ser verificável. Sai o trecho menos relevante, inteiro.
+
+    O primeiro trecho entra mesmo se estourar sozinho: devolver lista vazia faria
+    o motor concluir que nada foi recuperado e responder "não há material", que é
+    pior do que um prompt apertado. Com a janela em 8192 e o teto de chunk em
+    2000 caracteres, esse caso não acontece na prática.
+
+    `orcamento_em_tokens <= 0` desliga o corte.
+    """
+    if orcamento_em_tokens <= 0:
+        return list(trechos)
+
+    disponivel = orcamento_em_tokens - tokens_de_overhead
+    aceitos: list[TrechoRecuperado] = []
+    usados = 0
+
+    for trecho in trechos:
+        # Espelha o que `formatar_trechos` grava, mais o separador de dois \n.
+        custo = estimar_tokens(f"[Fonte 00: {trecho.titulo_pagina}]\n{trecho.texto}\n\n")
+        if aceitos and usados + custo > disponivel:
+            break
+        usados += custo
+        aceitos.append(trecho)
+
+    return aceitos
+
+
+def ordenar_para_o_prompt(trechos: list[TrechoRecuperado]) -> list[TrechoRecuperado]:
+    """Põe os mais relevantes nas pontas e os menos relevantes no meio.
+
+    A atenção do modelo sobre um contexto longo tem forma de U: ele usa o começo
+    e o fim e passa por cima do meio — o efeito conhecido como *lost in the
+    middle*, medido a ponto de o material no meio render menos que não recuperar
+    nada. Entregar em ordem decrescente, como se fazia aqui, põe o trecho menos
+    relevante justamente na posição final, que é uma das duas mais atendidas.
+
+    Intercalar resolve sem custo nenhum: o 1º abre, o 2º fecha, o 3º vem em
+    segundo, e os medianos ficam no miolo, que é onde a perda dói menos.
+    """
+    inicio: list[TrechoRecuperado] = []
+    fim: list[TrechoRecuperado] = []
+    for posicao, trecho in enumerate(trechos):
+        (inicio if posicao % 2 == 0 else fim).append(trecho)
+    return inicio + list(reversed(fim))
+
+
 def formatar_trechos(trechos: list[TrechoRecuperado]) -> str:
-    """Trechos numerados e etiquetados pela fonte, para o modelo poder citar."""
+    """Trechos etiquetados pela fonte, para o modelo poder citar.
+
+    **O número é a posição na relevância, não no prompt.** Os blocos saem
+    intercalados por `ordenar_para_o_prompt`, mas `[Fonte 2]` continua sendo o
+    segundo trecho mais relevante — que é o que a interface mostra como 2 e o que
+    `validar_citacoes` confere. Numerar pela posição física faria a citação da
+    resposta apontar para uma fonte diferente da que a pessoa vê na tela.
+    """
+    numerados = {id(trecho): numero for numero, trecho in enumerate(trechos, start=1)}
     return "\n\n".join(
-        f"[Fonte {numero}: {trecho.titulo_pagina}]\n{trecho.texto}" for numero, trecho in enumerate(trechos, start=1)
+        f"[Fonte {numerados[id(trecho)]}: {trecho.titulo_pagina}]\n{trecho.texto}"
+        for trecho in ordenar_para_o_prompt(trechos)
     )
 
 

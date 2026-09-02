@@ -2,3 +2,9 @@
 requests
 qdrant-client
 mwparserfromhell
+
+# Reordenação por cross-encoder (`busca.reordenar`). Instale a variante de CPU
+# para não disputar VRAM com o embedding e a geração:
+#   pip3 install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+transformers

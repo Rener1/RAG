@@ -103,7 +103,10 @@ class GeradorOllama:
             "model": self._config.modelo,
             "prompt": prompt,
             "stream": self._config.streaming,
-            "options": {"temperature": self._config.temperatura},
+            "options": {
+                "temperature": self._config.temperatura,
+                "num_ctx": self._config.num_ctx,
+            },
         }
 
         try:

@@ -1,0 +1,6 @@
+# Dependências do pipeline, sem a reordenação.
+# A reordenação (torch + transformers) fica no estágio `reordenacao` do
+# Containerfile, porque pesa mais de 5 GB e é opcional.
+requests
+qdrant-client
+mwparserfromhell

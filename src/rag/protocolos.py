@@ -82,6 +82,24 @@ class ColetorDeCorpus(Protocol):
 
 
 @runtime_checkable
+class Reordenador(Protocol):
+    """Reordena candidatos pela relevância real à pergunta.
+
+    A busca vetorial compara dois vetores calculados em separado; um
+    cross-encoder lê pergunta e trecho **juntos**, e por isso julga melhor — ao
+    custo de não dar para pré-calcular, o que o limita a reordenar um punhado de
+    candidatos em vez de varrer o acervo.
+
+    A etapa de recuperação depende disto, e não da classe concreta: trocar o
+    modelo de reordenação é escrever outra classe com este método.
+    """
+
+    def reordenar(self, pergunta: str, trechos: list[TrechoRecuperado]) -> list[TrechoRecuperado]:
+        """Os mesmos trechos, do mais para o menos relevante."""
+        ...
+
+
+@runtime_checkable
 class RecuperadorDeTrechos(Protocol):
     """Devolve os trechos mais relevantes para uma pergunta.
 

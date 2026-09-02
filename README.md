@@ -21,8 +21,19 @@ ollama pull qwen2.5:7b    # geração
 python3 main.py           # menu interativo — tudo passa por aqui
 ```
 
-Use **podman**, não docker: o arquivo se chama `docker-compose.yml` por
-convenção de nome apenas, e o volume usa a flag `:Z` do SELinux.
+Use **podman**, não docker — nesta máquina `docker` já é o shim dele. O podman
+roda rootless, e por isso os volumes usam a flag `:Z` do SELinux.
+
+Também dá para rodar o pipeline inteiro em container, sem instalar nada no
+host além do Ollama:
+
+```bash
+podman compose --profile execucao build rag
+podman compose run --rm rag ambiente
+```
+
+Requer `OLLAMA_HOST=0.0.0.0` no serviço do host — o cabeçalho do
+[compose.yaml](compose.yaml) explica por quê e como.
 
 ## Como usar
 
@@ -47,8 +58,9 @@ marco: generico
   5  Buscar               etapa 4 — só recuperação
   6  Perguntar            etapa 5 — resposta direta
   7  Dialogar             problematiza antes de responder
-  8  Marco pedagógico     ver e trocar o marco ativo
-  9  Configuração         ver, ajustar e salvar parâmetros
+  8  Avaliar              mede a recuperação contra o gabarito
+  9  Marco pedagógico     ver e trocar o marco ativo
+  c  Configuração         ver, ajustar e salvar parâmetros
   0  Sair
 ```
 
@@ -68,9 +80,11 @@ python3 main.py indexar --recriar             # apaga a coleção e refaz
 python3 main.py chunking --saida data/experimento.jsonl   # preserva o chunks.jsonl indexado
 python3 main.py buscar "quem são os argonianos?"
 python3 main.py buscar "..." --sem-intermediar # sem reformular a pergunta
+python3 main.py buscar "..." --k-dinamico 0.9 # ajusta o nº de trechos (padrão: 0.9)
 python3 main.py perguntar "o que foi a crise de oblivion?" --k 8
 python3 main.py perguntar "..." --direto      # sem problematizar
 python3 main.py perguntar                     # modo conversa
+python3 main.py avaliar --comparar            # recall@k com e sem mediação
 python3 main.py marcos                        # marcos pedagógicos disponíveis
 python3 main.py config                        # configuração e origem de cada valor
 python3 main.py config --salvar               # grava em config.toml
@@ -107,6 +121,7 @@ resposta.
 main.py                  ponto de entrada único (menu + CLI)
 config.exemplo.toml      modelo do config.toml desta máquina
 marcos/                  marcos pedagógicos, em Markdown — ver marcos/LEIA-ME.md
+avaliacao/               gabarito da avaliação de recuperação
 src/rag/
   config.py              todos os parâmetros, mais leitura e escrita do config.toml
   modelos.py             estruturas do domínio (Chunk, TrechoRecuperado, Sessao...)
@@ -116,6 +131,9 @@ src/rag/
   marco.py               carrega e valida os marcos pedagógicos
   mediacao.py            reformula e decompõe a pergunta antes da busca
   sessao.py              a máquina de estados que problematiza antes de responder
+  avaliacao.py           mede recall@k contra o gabarito
+  acelerador.py          detecta a GPU e diz qual torch instalar
+  lexico.py              busca léxica BM25, opcional
   servico.py             composição das dependências
   ambiente.py            diagnóstico
   clientes/              adaptadores: Ollama, Qdrant, UESP, sessão HTTP
@@ -161,6 +179,26 @@ recebem perguntas de volta antes. O que você responde entra na consulta que vai
 à recuperação — problematizar melhora a busca, não só a forma. Enter em branco
 pula, e `--direto` desliga.
 
+## Avaliação
+
+Sem medir, toda mudança no chunking, no `k` ou na mediação é troca no escuro.
+`avaliar` roda um gabarito de perguntas com as páginas que deveriam ser
+recuperadas e devolve `recall@k`, cobertura e MRR — **sem gerar uma linha de
+texto**, porque recuperação e geração têm correções opostas e não devem ser
+medidas juntas.
+
+```bash
+python3 main.py avaliar --comparar
+```
+
+A qualidade da resposta gerada não é medida automaticamente, e isso é
+deliberado: o modo de falha que importa — texto bem articulado e vazio — é
+invisível para métrica textual, e um modelo julgando tende a premiá-lo. Essa
+camada é rubrica humana.
+
+O estado atual das medições está em
+[docs/estado-do-desenvolvimento.md](docs/estado-do-desenvolvimento.md).
+
 ## Configuração
 
 Os padrões ficam em [src/rag/config.py](src/rag/config.py), agrupados por etapa.
@@ -182,6 +220,6 @@ cada valor em vigor.
 python3 -m unittest discover -s tests -t tests
 ```
 
-158 testes, nenhum precisando de Qdrant, Ollama ou rede: as dependências
+284 testes, nenhum precisando de Qdrant, Ollama ou rede: as dependências
 externas entram como dublês (`tests/apoio.py`), o que só é possível porque as
 etapas dependem dos protocolos.

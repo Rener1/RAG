@@ -30,6 +30,48 @@ class EmbutidorFalso:
         return [[float(len(t) % 7), 1.0, 0.0, 0.5] for t in textos]
 
 
+class EmbutidorPorTexto:
+    """Um vetor por texto distinto, ortogonais entre si salvo quando ditado.
+
+    `EmbutidorFalso` não serve para exercitar a deduplicação: os vetores dele
+    dependem só de `len(texto) % 7`, então dois textos sem relação nenhuma saem
+    quase paralelos e a dedup os confundiria. Aqui textos diferentes são
+    ortogonais por construção (cosseno 0) e textos iguais são idênticos — que é
+    o comportamento neutro que os testes de mediação querem de pano de fundo.
+
+    `vetores` dita o vetor de textos específicos, para montar redundância de
+    propósito.
+    """
+
+    DIMENSAO = 32
+
+    def __init__(self, vetores: dict[str, list[float]] | None = None) -> None:
+        self._ditados = vetores or {}
+        self._atribuidos: dict[str, list[float]] = {}
+        self.chamadas: list[list[str]] = []
+        self.erro: Exception | None = None
+
+    @property
+    def dimensao(self) -> int:
+        return self.DIMENSAO
+
+    def _vetor(self, texto: str) -> list[float]:
+        if texto in self._ditados:
+            return list(self._ditados[texto])
+        if texto not in self._atribuidos:
+            posicao = len(self._atribuidos) % self.DIMENSAO
+            vetor = [0.0] * self.DIMENSAO
+            vetor[posicao] = 1.0
+            self._atribuidos[texto] = vetor
+        return list(self._atribuidos[texto])
+
+    def embutir(self, textos: list[str]) -> list[list[float]]:
+        self.chamadas.append(list(textos))
+        if self.erro is not None:
+            raise self.erro
+        return [self._vetor(t) for t in textos]
+
+
 class RepositorioFalso:
     """Banco vetorial em memória, com a mesma forma do RepositorioQdrant."""
 
@@ -120,6 +162,32 @@ class RecuperadorFalso:
     def buscar(self, pergunta: str, k: int | None = None) -> list[TrechoRecuperado]:
         self.consultas.append((pergunta, k))
         return self.por_consulta.get(pergunta, self.padrao)
+
+
+class ReordenadorFalso:
+    """Cumpre `Reordenador` sem carregar modelo nenhum.
+
+    Reordena pela ordem ditada em `preferencia` (títulos de página); o que não
+    estiver lá mantém a posição relativa. Permite testar a fiação da reordenação
+    sem `torch`, que é o que mantém a suíte rodando sem dependência pesada.
+    """
+
+    def __init__(self, preferencia: list[str] | None = None, erro: Exception | None = None) -> None:
+        self.preferencia = preferencia or []
+        self.erro = erro
+        self.chamadas: list[tuple[str, int]] = []
+
+    def reordenar(self, pergunta: str, trechos: list[TrechoRecuperado]) -> list[TrechoRecuperado]:
+        self.chamadas.append((pergunta, len(trechos)))
+        if self.erro is not None:
+            raise self.erro
+
+        def posicao(trecho: TrechoRecuperado) -> int:
+            if trecho.titulo_pagina in self.preferencia:
+                return self.preferencia.index(trecho.titulo_pagina)
+            return len(self.preferencia)
+
+        return sorted(trechos, key=posicao)
 
 
 class MarcoFalso:

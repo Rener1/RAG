@@ -61,6 +61,11 @@ class ConfigCaminhos:
         """Marcos pedagógicos. Fora de `data/`: são versionados no git."""
         return RAIZ_PROJETO / "marcos"
 
+    @property
+    def casos_de_avaliacao(self) -> Path:
+        """Gabarito da avaliação. Fora de `data/` pelo mesmo motivo dos marcos."""
+        return RAIZ_PROJETO / "avaliacao" / "casos.jsonl"
+
 
 @dataclass
 class ConfigDownload:
@@ -112,8 +117,79 @@ class ConfigVetorial:
 class ConfigBusca:
     """Recuperação."""
 
-    k: int = 5  # trechos recuperados por pergunta
-    score_minimo: float = 0.0  # 0 = sem corte; subir filtra ruído do topo da lista
+    # Medido em 40 casos: k=5 dava recall 72% e cobertura 61%; k=8 dá 80% e 70%,
+    # ocupando 31% do orçamento de prompt em vez de 21%, e sem custo de latência
+    # perceptível (o prefill é paralelo na GPU; quem manda no tempo é o tamanho
+    # da resposta). De 8 a 10 não há ganho, e acima de 12 o retorno cai enquanto
+    # o espaço que o marco do comitê vai precisar encolhe.
+    k: int = 8  # trechos recuperados por pergunta, quando a quantidade é fixa
+
+    # Corte por score absoluto. **Medido como inútil neste corpus, e por isso
+    # continua em 0**: as faixas de score de trecho relevante e irrelevante são
+    # a mesma coisa (medianas 0,552 e 0,551), e qualquer valor alto o bastante
+    # para filtrar ruído deixa perguntas legítimas sem nenhum resultado — em
+    # 0,60, dez dos quarenta casos voltavam vazios. Ver o documento de estado.
+    score_minimo: float = 0.0
+
+    # Quantidade dinâmica: mantém os trechos que pontuam pelo menos esta fração
+    # do primeiro colocado *daquela pergunta*. Relativo, e não absoluto, porque
+    # o score do topo varia de pergunta para pergunta (0,526 a 0,724) e um corte
+    # fixo super-recupera numas e mata outras. 0 = desligado, volta a usar `k`.
+    #
+    # Em 0,90: recall 88% e cobertura 74% com 10,3 trechos por caso, contra 85% e
+    # 72% do `k = 8` fixo — e contra 85% e 76% do `k = 12`, que gasta mais
+    # trechos para recuperar menos. Adapta como se esperaria: menos trechos para
+    # dúvida factual, mais para exploração.
+    #
+    # **Enquanto for maior que zero, `k` acima não é usado** (salvo `--k N`
+    # explícito, que sempre manda). Pôr em 0 devolve a quantidade fixa.
+    limiar_relativo: float = 0.90
+    k_maximo: int = 20  # teto quando a quantidade é dinâmica
+    k_minimo: int = 5  # piso: pergunta com queda abrupta não pode voltar quase vazia
+
+    # Reordenação por cross-encoder. Busca `candidatos_para_reordenar`, reordena
+    # e entrega a quantidade que a política decidir. Nos benchmarks é o maior
+    # ganho isolado de um sistema só-denso, e 50 é o ponto de operação medido —
+    # com 20 o reordenador não tem material, e acima de 100 o retorno some.
+    #
+    # Ligada por padrão: mede +2 de recall e +4 de cobertura, e custa 0,17 s por
+    # consulta na GPU com meia precisão. Ficou desligada enquanto só rodava em
+    # CPU, onde custava 7 s — o que mudou a decisão foi a medição, não a opinião.
+    #
+    # **Máquina sem `torch` não quebra**: `ReordenadorLocal` levanta
+    # `ErroPreRequisito`, que a recuperação captura e devolve a ordem vetorial.
+    # É o que permite o mesmo padrão servir ao host enxuto e ao container com GPU.
+    reordenar: bool = True
+    candidatos_para_reordenar: int = 50
+
+    # Fusão com busca léxica (BM25). Desligada porque o corpus atual é
+    # translíngue, que é o cenário em que ela perde (denso 85% contra híbrido
+    # 82%); com pergunta e documento no mesmo idioma ela ganha (90% contra 92%).
+    # `peso_denso` **precisa ser 2 ou mais**: com peso igual o léxico arrasta o
+    # denso para baixo. De 2 a 10 o resultado é o mesmo.
+    hibrido: bool = False
+    peso_denso: int = 3
+
+
+@dataclass
+class ConfigReordenacao:
+    """Modelo de reordenação (cross-encoder).
+
+    Roda em CPU por padrão: são ~50 pares por pergunta, e deixar a GPU livre
+    para embedding e geração vale mais que a latência economizada aqui.
+    """
+
+    modelo: str = "BAAI/bge-reranker-v2-m3"
+    # "auto" usa a GPU quando o torch a enxerga, e CPU quando não. Fixar em
+    # "cpu" ou "cuda" força um dos dois.
+    dispositivo: str = "auto"
+    # Meia precisão na GPU **não é detalhe de afinação**: medido na RX 9070 XT,
+    # 50 pares levam 2,38 s em fp32 e 0,13 s em fp16 — 18× de diferença, porque
+    # a RDNA4 tem fp16 rápida e fp32 comparativamente lenta. Em CPU, fp16 é mais
+    # lenta ou não suportada, então "auto" só a usa na GPU.
+    precisao: str = "auto"  # "auto" | "fp16" | "fp32"
+    tamanho_lote: int = 16  # medido: 16 bate 50 num lote só, por desperdiçar menos preenchimento
+    tamanho_maximo: int = 512  # tokens por par pergunta+trecho
 
 
 @dataclass
@@ -125,6 +201,13 @@ class ConfigGeracao:
     temperatura: float = 0.2  # baixa: a resposta deve seguir os trechos, não improvisar
     timeout: int = 300
     streaming: bool = True  # imprime conforme gera, em vez de esperar o texto inteiro
+    # Sem `num_ctx` explícito o Ollama usa 4096, muito abaixo dos 32768 que o
+    # qwen2.5:7b aceita — e o prompt que passar disso é truncado em silêncio.
+    # Medido nesta máquina: `ollama ps` mostrava CONTEXT 4096 antes deste campo.
+    num_ctx: int = 8192
+    # Tokens que o prompt não pode ocupar, reservados para a resposta. O que
+    # sobra vira o orçamento dos trechos recuperados.
+    reserva_para_resposta: int = 1024
 
 
 @dataclass
@@ -137,11 +220,27 @@ class ConfigIntermediacao:
     """
 
     ligada: bool = True
-    maximo_de_subconsultas: int = 3
+    # O papel da camada: quebrar pergunta composta em consultas simples. O prompt
+    # devolve uma linha só quando a pergunta trata de um assunto só, então
+    # pergunta simples continua custando uma busca — decompor não é o padrão
+    # aplicado a tudo, é o que acontece quando há mais de um assunto.
+    #
+    # Medido sem reordenação, decompor custava −3 de recall; a suspeita é que a
+    # fusão gastava as vagas do top-k com material das sub-consultas. Com o
+    # reordenador julgando a lista fundida contra a pergunta original, essa
+    # objeção some — mas é para medir, não para supor.
+    decompor: bool = True
+    maximo_de_subconsultas: int = 4  # só vale com `decompor`; teto, não alvo
+    # Rede de segurança para consultas quase idênticas, não o mecanismo que
+    # decide a quantidade — quem decide é o prompt. Alto de propósito: medido
+    # com bge-m3, as faixas se sobrepõem (facetas legítimas chegam a 0,893 e
+    # duplicatas descem a 0,620), então descartar é o erro caro e conservar é o
+    # barato. Ver `descartar_redundantes`.
+    limiar_de_redundancia: float = 0.95
     k_por_subconsulta: int = 8
     constante_rrf: int = 60
     incluir_pergunta_original: bool = True
-    minimo_de_caracteres: int = 25  # abaixo disso, reformular não paga a chamada
+    minimo_de_caracteres: int = 25  # abaixo disso, decompor não paga a chamada (traduzir paga sempre)
     diversidade_por_documento: int = 0  # 0 = sem teto por documento
 
 
@@ -180,6 +279,7 @@ class Config:
     vetorial: ConfigVetorial = field(default_factory=ConfigVetorial)
     busca: ConfigBusca = field(default_factory=ConfigBusca)
     geracao: ConfigGeracao = field(default_factory=ConfigGeracao)
+    reordenacao: ConfigReordenacao = field(default_factory=ConfigReordenacao)
     intermediacao: ConfigIntermediacao = field(default_factory=ConfigIntermediacao)
     sessao: ConfigSessao = field(default_factory=ConfigSessao)
     marco: ConfigMarco = field(default_factory=ConfigMarco)

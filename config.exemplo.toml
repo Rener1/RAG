@@ -55,8 +55,15 @@
 
 # Recuperação.
 [busca]
-# k = 5
+# k = 8
 # score_minimo = 0.0
+# limiar_relativo = 0.9
+# k_maximo = 20
+# k_minimo = 5
+# reordenar = true
+# candidatos_para_reordenar = 50
+# hibrido = false
+# peso_denso = 3
 
 # Geração da resposta final.
 [geracao]
@@ -65,11 +72,23 @@
 # temperatura = 0.2
 # timeout = 300
 # streaming = true
+# num_ctx = 8192
+# reserva_para_resposta = 1024
+
+# Modelo de reordenação (cross-encoder).
+[reordenacao]
+# modelo = "BAAI/bge-reranker-v2-m3"
+# dispositivo = "auto"
+# precisao = "auto"
+# tamanho_lote = 16
+# tamanho_maximo = 512
 
 # Reformulação e decomposição da pergunta antes da busca.
 [intermediacao]
 # ligada = true
-# maximo_de_subconsultas = 3
+# decompor = true
+# maximo_de_subconsultas = 4
+# limiar_de_redundancia = 0.95
 # k_por_subconsulta = 8
 # constante_rrf = 60
 # incluir_pergunta_original = true

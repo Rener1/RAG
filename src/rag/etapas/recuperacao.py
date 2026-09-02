@@ -10,17 +10,84 @@ trecho certo não foi recuperado, nenhum ajuste de prompt conserta a resposta.
 """
 
 from ..config import ConfigBusca
+from ..erros import ErroPipeline
 from ..modelos import TrechoRecuperado
-from ..protocolos import Embutidor, RepositorioVetorial
+from ..protocolos import Embutidor, Reordenador, RepositorioVetorial
+
+
+def recortar_por_limiar_relativo(
+    trechos: list[TrechoRecuperado],
+    limiar: float,
+    minimo: int,
+) -> list[TrechoRecuperado]:
+    """Mantém os trechos próximos do primeiro colocado, com um piso.
+
+    A quantidade passa a depender da pergunta: onde o score despenca depois do
+    segundo trecho, voltam poucos; onde fica num platô, voltam muitos. Medido
+    nos 40 casos com `limiar = 0,90`, a média foi de 7,3 trechos para dúvida
+    factual, 10,7 para exploração e 12,6 para pedido de produto — a ordem que se
+    esperaria, e o motivo de a política existir.
+
+    **Relativo ao topo de cada pergunta, nunca absoluto.** O score do primeiro
+    colocado varia de 0,526 a 0,724 conforme a pergunta, então um corte fixo é
+    frouxo para umas e mortal para outras. Pior: as faixas de score de trecho
+    relevante e irrelevante se sobrepõem quase por inteiro neste corpus, de modo
+    que corte absoluto nenhum separa os dois. O relativo não tenta separar —
+    ele só mede onde a lista para de ser parecida com o próprio topo.
+
+    O piso existe porque similaridade alta e isolada não quer dizer resposta
+    completa: uma pergunta cujo topo destoa dos demais devolveria um trecho só,
+    e uma fonte só é pouco para fundamentar qualquer coisa.
+    """
+    if not trechos or limiar <= 0:
+        return list(trechos)
+
+    corte = limiar * trechos[0].score
+    aceitos = [trecho for trecho in trechos if trecho.score >= corte]
+    return aceitos if len(aceitos) >= minimo else trechos[:minimo]
 
 
 class Recuperador:
     """Recuperação de trechos. Depende dos protocolos, não das implementações."""
 
-    def __init__(self, embutidor: Embutidor, repositorio: RepositorioVetorial, config: ConfigBusca) -> None:
+    def __init__(
+        self,
+        embutidor: Embutidor,
+        repositorio: RepositorioVetorial,
+        config: ConfigBusca,
+        reordenador: Reordenador | None = None,
+    ) -> None:
         self._embutidor = embutidor
         self._repositorio = repositorio
         self._config = config
+        self._reordenador = reordenador
+
+    def _quantos_candidatos(self, k: int | None) -> int:
+        """Quantos trechos pedir ao banco antes de recortar.
+
+        Com reordenação, o pool é grande de propósito: um cross-encoder só
+        melhora o que recebe, e receber 20 candidatos mede pior que receber 50.
+        """
+        if self._reordenador is not None and self._config.reordenar:
+            return max(self._config.candidatos_para_reordenar, k or 0)
+        if k is not None:
+            return k
+        if self._config.limiar_relativo > 0:
+            return self._config.k_maximo
+        return self._config.k
+
+    def _reordenar(self, pergunta: str, trechos: list[TrechoRecuperado]) -> list[TrechoRecuperado]:
+        """Reordena quando há reordenador. Falha volta à ordem vetorial.
+
+        A recuperação não pode cair porque um modelo opcional tropeçou — mesma
+        disciplina da mediação.
+        """
+        if self._reordenador is None or not self._config.reordenar or not trechos:
+            return trechos
+        try:
+            return self._reordenador.reordenar(pergunta, trechos)
+        except (ErroPipeline, RuntimeError, ValueError):
+            return trechos
 
     def buscar(self, pergunta: str, k: int | None = None) -> list[TrechoRecuperado]:
         """Trechos mais próximos da pergunta, do mais para o menos similar.
@@ -32,8 +99,21 @@ class Recuperador:
         (`buscar --sem-intermediar`).
         """
         vetor = self._embutidor.embutir([pergunta])[0]
-        return self._repositorio.buscar(
+        candidatos = self._repositorio.buscar(
             vetor,
-            k=k or self._config.k,
+            k=self._quantos_candidatos(k),
             score_minimo=self._config.score_minimo,
+        )
+        candidatos = self._reordenar(pergunta, candidatos)
+
+        # `k` explícito manda: quem passou um número quer aquele número, e é o
+        # que mantém a varredura de `k` do harness comparável.
+        if k is not None:
+            return candidatos[:k]
+        if self._config.limiar_relativo <= 0:
+            return candidatos[: self._config.k]
+        return recortar_por_limiar_relativo(
+            candidatos,
+            self._config.limiar_relativo,
+            self._config.k_minimo,
         )
