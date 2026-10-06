@@ -20,6 +20,7 @@
 # Onde vivem os artefatos gerados. Tudo abaixo de `data/`, tudo gitignored.
 [caminhos]
 # dados = "data"   # padrão: a pasta data/ na raiz do repositório
+# arquivo_chunks = "chunks.jsonl"
 
 # Coleta do corpus de teste na UESP (namespace Lore, via API MediaWiki).
 [download]
@@ -102,6 +103,12 @@
 # perguntas_ancoradas = true
 # maximo_de_rodadas = 1
 # maximo_de_perguntas = 3
+
+# Limitador de carga — quanto do tempo o pipeline mantém o hardware ocupado.
+[carga]
+# fracao = 1.0
+# tamanho_lote = 8
+# threads_de_cpu = 0
 
 # Marco pedagógico. O conteúdo mora em `marcos/*.md`, versionado no git.
 [marco]

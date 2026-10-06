@@ -21,11 +21,13 @@ medir a busca direta e a mediada com exatamente o mesmo código.
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from .erros import ErroConfiguracao
 from .etapas import RelatorProgresso, sem_progresso
+from .modelos import TrechoRecuperado
 from .protocolos import RecuperadorDeTrechos
 
 # Campos exigidos de cada caso. Os nomes vêm da tabela de `fase-3` §4, para o
@@ -44,10 +46,28 @@ class CasoDeTeste:
     observacao: str = ""
 
 
+def _paginas_em_ordem(trechos: list[TrechoRecuperado]) -> tuple[str, ...]:
+    """Páginas na ordem em que apareceram, sem repetir.
+
+    Dois trechos da mesma página não são dois acertos, e a posição que
+    interessa é a da primeira.
+    """
+    paginas: list[str] = []
+    for trecho in trechos:
+        if trecho.titulo_pagina not in paginas:
+            paginas.append(trecho.titulo_pagina)
+    return tuple(paginas)
+
+
 @dataclass(frozen=True, slots=True)
 class ResultadoDeCaso:
     caso: CasoDeTeste
     paginas_recuperadas: tuple[str, ...]
+    trechos_recuperados: int = 0
+    # O que sobra depois do orçamento de contexto. `None` = não medido (a
+    # avaliação rodou sem orçamento), e aí tudo o que foi recuperado conta.
+    paginas_no_prompt: tuple[str, ...] | None = None
+    trechos_no_prompt: int | None = None
 
     @property
     def acertos(self) -> int:
@@ -57,6 +77,17 @@ class ResultadoDeCaso:
     @property
     def acertou(self) -> bool:
         return self.acertos > 0
+
+    @property
+    def foi_cortado(self) -> bool:
+        """O orçamento de contexto descartou algum trecho recuperado."""
+        return self.trechos_no_prompt is not None and self.trechos_no_prompt < self.trechos_recuperados
+
+    @property
+    def acertou_no_prompt(self) -> bool:
+        """Acerto que de fato chegaria ao modelo."""
+        paginas = self.paginas_recuperadas if self.paginas_no_prompt is None else self.paginas_no_prompt
+        return any(pagina in paginas for pagina in self.caso.paginas_esperadas)
 
     @property
     def posicao_do_primeiro_acerto(self) -> int | None:
@@ -87,10 +118,29 @@ class ResultadoDaAvaliacao:
 
     @property
     def trechos_por_caso(self) -> float:
-        """Média de trechos usados. Só varia quando a quantidade é dinâmica."""
+        """Média de trechos recuperados. Só varia quando a quantidade é dinâmica.
+
+        Resultados montados sem a contagem de trechos caem na de páginas.
+        """
         if not self.resultados:
             return 0.0
-        return sum(len(r.paginas_recuperadas) for r in self.resultados) / len(self.resultados)
+        return sum(r.trechos_recuperados or len(r.paginas_recuperadas) for r in self.resultados) / len(self.resultados)
+
+    @property
+    def mediu_orcamento(self) -> bool:
+        return any(r.trechos_no_prompt is not None for r in self.resultados)
+
+    @property
+    def casos_cortados(self) -> int:
+        """Casos em que o orçamento de contexto descartou trecho recuperado."""
+        return sum(1 for r in self.resultados if r.foi_cortado)
+
+    @property
+    def recall_no_prompt(self) -> float:
+        """Recall contado só sobre o que cabe no prompt — o que o modelo veria."""
+        if not self.resultados:
+            return 0.0
+        return sum(1 for r in self.resultados if r.acertou_no_prompt) / len(self.resultados)
 
     @property
     def total(self) -> int:
@@ -211,26 +261,34 @@ def avaliar(
     k: int | None,
     rotulo: str = "",
     progresso: RelatorProgresso = sem_progresso,
+    ajustar: Callable[[str, list[TrechoRecuperado]], list[TrechoRecuperado]] | None = None,
 ) -> ResultadoDaAvaliacao:
     """Roda o gabarito contra um recuperador. Não gera texto nenhum.
 
     `k = None` deixa a quantidade por conta da política de busca configurada —
     é o que permite medir o `k` dinâmico. Passar um número força aquele número,
     que é o que a varredura de `k` precisa.
+
+    `ajustar` é o corte do orçamento de contexto (`MotorRag.trechos_que_cabem`).
+    Com ele, cada caso registra também o que chegaria ao modelo: recortes
+    maiores ou `k` maior podem recuperar bem e ainda assim não caber na janela.
     """
     inicio = time.monotonic()
     resultados: list[ResultadoDeCaso] = []
 
     for numero, caso in enumerate(casos, start=1):
         trechos = recuperador.buscar(caso.demanda, k=k)
-        # Páginas na ordem em que apareceram, sem repetir: dois trechos da mesma
-        # página não são dois acertos, e a posição que interessa é a da primeira.
-        paginas: list[str] = []
-        for trecho in trechos:
-            if trecho.titulo_pagina not in paginas:
-                paginas.append(trecho.titulo_pagina)
+        no_prompt = ajustar(caso.demanda, trechos) if ajustar else None
 
-        resultados.append(ResultadoDeCaso(caso=caso, paginas_recuperadas=tuple(paginas)))
+        resultados.append(
+            ResultadoDeCaso(
+                caso=caso,
+                paginas_recuperadas=_paginas_em_ordem(trechos),
+                trechos_recuperados=len(trechos),
+                paginas_no_prompt=_paginas_em_ordem(no_prompt) if no_prompt is not None else None,
+                trechos_no_prompt=len(no_prompt) if no_prompt is not None else None,
+            )
+        )
         progresso(numero, len(casos), caso.identificador)
 
     return ResultadoDaAvaliacao(

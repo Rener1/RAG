@@ -32,6 +32,8 @@ exemplos:
   python3 main.py chunking                 refaz os chunks
   python3 main.py chunking --estrategia paragrafo_agrupado --saida data/experimento.jsonl
   python3 main.py indexar --recriar        reindexa do zero
+  python3 main.py --carga 0.75 indexar     indexa poupando a placa (~90 W em vez de ~300 W)
+  python3 main.py --chunks experimento.jsonl --colecao experimento indexar
   python3 main.py buscar "quem são os argonianos?"
   python3 main.py buscar "..." --sem-intermediar    busca sem reformular a pergunta
   python3 main.py buscar "..." --k-dinamico 0.9    quantidade de trechos conforme a pergunta
@@ -61,6 +63,19 @@ def construir_parser() -> argparse.ArgumentParser:
         "--colecao",
         default=argparse.SUPPRESS,
         help="coleção do banco vetorial a usar nesta execução",
+    )
+    globais.add_argument(
+        "--chunks",
+        metavar="ARQUIVO",
+        default=argparse.SUPPRESS,
+        help="arquivo de chunks desta execução (relativo a data/); acompanha --colecao",
+    )
+    globais.add_argument(
+        "--carga",
+        type=float,
+        metavar="FRACAO",
+        default=argparse.SUPPRESS,
+        help="limita a carga no hardware: fração do tempo trabalhando (ex.: 0.75; 1 = sem limite)",
     )
     globais.add_argument(
         "--config",
@@ -105,6 +120,7 @@ def construir_parser() -> argparse.ArgumentParser:
 
     p_chunking = novo_subcomando("chunking", "etapa 2 — corta o corpus em trechos")
     p_chunking.add_argument("--estrategia", help="estratégia de corte (paragrafo, paragrafo_agrupado)")
+    p_chunking.add_argument("--tamanho-maximo", type=int, metavar="CHARS", help="teto de caracteres por chunk")
     p_chunking.add_argument(
         "--saida",
         type=Path,
@@ -179,7 +195,15 @@ def construir_parser() -> argparse.ArgumentParser:
 # não foi escrita. Não dá para usar `parser.set_defaults` aqui — ele reescreve o
 # `default` do objeto da ação, que `parents` compartilha entre o parser principal
 # e todos os subcomandos, desfazendo justamente o SUPPRESS que resolve o problema.
-GLOBAIS_PADRAO = {"colecao": None, "config": None, "sem_config": False, "marco": None, "sem_cor": False}
+GLOBAIS_PADRAO = {
+    "colecao": None,
+    "chunks": None,
+    "carga": None,
+    "config": None,
+    "sem_config": False,
+    "marco": None,
+    "sem_cor": False,
+}
 
 
 def _normalizar_globais(argumentos: argparse.Namespace) -> None:
@@ -192,10 +216,16 @@ def _aplicar_opcoes_globais(argumentos: argparse.Namespace, config: Config) -> N
     """Sobrescreve configuração para esta execução, antes de qualquer cliente subir."""
     if argumentos.colecao:
         config.vetorial.colecao = argumentos.colecao
+    if argumentos.chunks:
+        config.caminhos.arquivo_chunks = argumentos.chunks
+    if argumentos.carga is not None:
+        config.carga.fracao = argumentos.carga
     if argumentos.marco is not None:
         config.marco.ativo = argumentos.marco
     if getattr(argumentos, "estrategia", None):
         config.chunking.estrategia = argumentos.estrategia
+    if getattr(argumentos, "tamanho_maximo", None):
+        config.chunking.tamanho_maximo = argumentos.tamanho_maximo
     if getattr(argumentos, "sem_intermediar", False):
         config.intermediacao.ligada = False
     if getattr(argumentos, "k_dinamico", None) is not None:

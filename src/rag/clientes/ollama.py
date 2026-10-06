@@ -20,8 +20,9 @@ from .http import criar_sessao
 class ClienteOllama:
     """Embutidor: texto → vetor, via `/api/embed`."""
 
-    def __init__(self, config: ConfigEmbedding) -> None:
+    def __init__(self, config: ConfigEmbedding, threads_de_cpu: int = 0) -> None:
         self._config = config
+        self._threads_de_cpu = threads_de_cpu
         self._sessao = criar_sessao(conexoes_simultaneas=max(8, config.lotes_paralelos * 2))
 
     @property
@@ -44,9 +45,12 @@ class ClienteOllama:
             return []
 
         try:
+            corpo: dict = {"model": self._config.modelo, "input": textos}
+            if self._threads_de_cpu > 0:
+                corpo["options"] = {"num_thread": self._threads_de_cpu}
             resposta = self._sessao.post(
                 f"{self._config.ollama_url}/api/embed",
-                json={"model": self._config.modelo, "input": textos},
+                json=corpo,
                 timeout=self._config.timeout,
             )
             resposta.raise_for_status()
@@ -89,8 +93,9 @@ class GeradorOllama:
     nenhum sinal de que algo estava acontecendo.
     """
 
-    def __init__(self, config: ConfigGeracao) -> None:
+    def __init__(self, config: ConfigGeracao, threads_de_cpu: int = 0) -> None:
         self._config = config
+        self._threads_de_cpu = threads_de_cpu
         self._sessao = criar_sessao(tentativas=1)  # geração é cara: não repetir automaticamente
 
     @property
@@ -108,6 +113,8 @@ class GeradorOllama:
                 "num_ctx": self._config.num_ctx,
             },
         }
+        if self._threads_de_cpu > 0:
+            corpo["options"]["num_thread"] = self._threads_de_cpu
 
         try:
             resposta = self._sessao.post(

@@ -160,6 +160,38 @@ class TestExecucao(unittest.TestCase):
         self.assertEqual(r.total, 1)
 
 
+class TestOrcamento(unittest.TestCase):
+    """O que chega ao modelo, e não só o que foi recuperado."""
+
+    def test_sem_ajuste_nao_mede_orcamento(self):
+        r = avaliar([caso("a", ("Lore:A",))], RecuperadorFalso(padrao=[trecho("Lore:A")]), k=5)
+        self.assertFalse(r.mediu_orcamento)
+        self.assertEqual(r.recall_no_prompt, r.recall)
+
+    def test_acerto_cortado_pelo_orcamento_nao_conta_no_prompt(self):
+        recuperador = RecuperadorFalso(padrao=[trecho("Lore:A"), trecho("Lore:B"), trecho("Lore:C")])
+        casos = [caso("a", ("Lore:A",)), caso("c", ("Lore:C",))]
+        r = avaliar(casos, recuperador, k=3, ajustar=lambda pergunta, trechos: trechos[:2])
+
+        self.assertEqual(r.recall, 1.0)
+        self.assertEqual(r.recall_no_prompt, 0.5)
+        self.assertEqual(r.casos_cortados, 2)
+        self.assertEqual(r.resultados[1].paginas_no_prompt, ("Lore:A", "Lore:B"))
+
+    def test_sem_corte_os_dois_recalls_batem(self):
+        recuperador = RecuperadorFalso(padrao=[trecho("Lore:A")])
+        r = avaliar([caso("a", ("Lore:A",))], recuperador, k=1, ajustar=lambda pergunta, trechos: trechos)
+        self.assertTrue(r.mediu_orcamento)
+        self.assertEqual(r.casos_cortados, 0)
+        self.assertEqual(r.recall_no_prompt, r.recall)
+
+    def test_trechos_por_caso_conta_trechos_e_nao_paginas(self):
+        """Com recortes grandes, várias fatias da mesma página são o normal."""
+        recuperador = RecuperadorFalso(padrao=[trecho("Lore:A"), trecho("Lore:A"), trecho("Lore:B")])
+        r = avaliar([caso("a", ("Lore:A",))], recuperador, k=None)
+        self.assertEqual(r.trechos_por_caso, 3)
+
+
 class TestGabarito(unittest.TestCase):
     def test_le_o_formato_completo(self):
         arquivo = gravar(

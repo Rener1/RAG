@@ -38,6 +38,17 @@ class MotorRag:
         self._orcamento = orcamento_em_tokens
         self._ao_ajustar_contexto = ao_ajustar_contexto
 
+    def trechos_que_cabem(self, pergunta: str, trechos: list[TrechoRecuperado]) -> list[TrechoRecuperado]:
+        """Os trechos que chegariam ao modelo, sem avisar ninguém do corte.
+
+        Público para a avaliação medir o que de fato vai ao prompt: `recall@k`
+        sobre a lista recuperada conta trecho que o orçamento descartaria.
+        """
+        if self._orcamento <= 0:
+            return trechos
+        overhead = estimar_tokens(self._montar_prompt(pergunta, []))
+        return caber_no_orcamento(trechos, self._orcamento, overhead)
+
     def _ajustar_ao_orcamento(self, pergunta: str, trechos: list[TrechoRecuperado]) -> list[TrechoRecuperado]:
         """Descarta os trechos que não cabem na janela do modelo.
 
@@ -50,11 +61,7 @@ class MotorRag:
         a mesma que foi ao modelo: exibir doze fontes e mandar sete ao prompt
         faria `validar_citacoes` aprovar uma fonte que o modelo nunca viu.
         """
-        if self._orcamento <= 0:
-            return trechos
-
-        overhead = estimar_tokens(self._montar_prompt(pergunta, []))
-        cabem = caber_no_orcamento(trechos, self._orcamento, overhead)
+        cabem = self.trechos_que_cabem(pergunta, trechos)
         if len(cabem) < len(trechos):
             self._ao_ajustar_contexto(len(trechos), len(cabem))
         return cabem

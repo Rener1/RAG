@@ -15,6 +15,7 @@ from functools import cached_property
 from pathlib import Path
 
 from . import marco as marco_pedagogico
+from .carga import EmbutidorLimitado, GeradorLimitado, LimitadorDeCarga, ReordenadorLimitado
 from .clientes import ClienteOllama, ColetorUESP, GeradorOllama, ReordenadorLocal, RepositorioQdrant
 from .config import CONFIG, Config, ConfiguracaoCarregada
 from .etapas import RelatorProgresso, sem_progresso
@@ -28,7 +29,7 @@ from .marco import Marco
 from .mediacao import ConsultaDecomposta, IntermediadorDeConsulta
 from .modelos import ResultadoEtapa
 from .orquestrador import MotorRag
-from .protocolos import RecuperadorDeTrechos
+from .protocolos import Embutidor, Gerador, RecuperadorDeTrechos, Reordenador
 from .sessao import Dialogo
 
 
@@ -61,8 +62,20 @@ class Servico:
     # ── peças ─────────────────────────────────────────────────────────────
 
     @cached_property
-    def embutidor(self) -> ClienteOllama:
-        return ClienteOllama(self.config.embedding)
+    def limitador(self) -> LimitadorDeCarga | None:
+        """Um só para o processo: é o que torna a fração global, e não por peça.
+
+        `None` com `carga.fracao = 1` — sem limite, nada é embrulhado e o
+        caminho é exatamente o de antes.
+        """
+        if self.config.carga.fracao == 1:
+            return None
+        return LimitadorDeCarga(self.config.carga.fracao)
+
+    @cached_property
+    def embutidor(self) -> Embutidor:
+        cliente = ClienteOllama(self.config.embedding, self.config.carga.threads_de_cpu)
+        return EmbutidorLimitado(cliente, self.limitador) if self.limitador else cliente
 
     @cached_property
     def repositorio(self) -> RepositorioQdrant:
@@ -74,10 +87,10 @@ class Servico:
 
     @cached_property
     def gerador(self) -> GeradorOllama:
-        return GeradorOllama(self.config.geracao)
+        return GeradorOllama(self.config.geracao, self.config.carga.threads_de_cpu)
 
     @cached_property
-    def gerador_de_apoio(self) -> GeradorOllama:
+    def gerador_de_apoio(self) -> Gerador:
         """Gerador para as chamadas internas: triagem, reformulação, perguntas.
 
         Separado do `gerador` porque essas chamadas querem a resposta inteira e
@@ -85,12 +98,18 @@ class Servico:
         com a temperatura da resposta final produziria sub-consulta criativa,
         que é exatamente o que não se quer numa busca.
         """
-        return GeradorOllama(replace(self.config.geracao, temperatura=0.0, streaming=False))
+        gerador = GeradorOllama(
+            replace(self.config.geracao, temperatura=0.0, streaming=False), self.config.carga.threads_de_cpu
+        )
+        # Limitado só este, e não o `gerador`: aqui são chamadas curtas e em
+        # série (uma por caso na avaliação); a resposta final é uma rajada só.
+        return GeradorLimitado(gerador, self.limitador) if self.limitador else gerador
 
     @cached_property
-    def reordenador(self) -> ReordenadorLocal:
+    def reordenador(self) -> Reordenador:
         """Cross-encoder que reordena os candidatos. Construído sob demanda."""
-        return ReordenadorLocal(self.config.reordenacao)
+        reordenador = ReordenadorLocal(self.config.reordenacao)
+        return ReordenadorLimitado(reordenador, self.limitador) if self.limitador else reordenador
 
     @cached_property
     def recuperador_base(self) -> Recuperador:
@@ -212,8 +231,8 @@ class Servico:
         """Corta o corpus. `arquivo_saida` desvia o resultado do caminho padrão.
 
         O desvio existe para experimentar estratégia nova sem destruir o
-        `chunks.jsonl` que corresponde ao índice já construído — reindexar custa
-        horas, e sobrescrever esse arquivo por engano é irreversível.
+        `chunks.jsonl` que corresponde ao índice já construído — sobrescrever esse
+        arquivo por engano obriga a reindexar.
         """
         return etapa_chunking.executar(
             self.config.chunking,
@@ -229,8 +248,13 @@ class Servico:
         recriar_colecao: bool = False,
         progresso: RelatorProgresso = sem_progresso,
     ) -> ResultadoEtapa:
+        # Com a carga limitada, lote menor: a pausa vem depois de cada lote, e
+        # lote menor é pausa mais fina — menos tempo em clock alto de uma vez.
+        config_embedding = self.config.embedding
+        if self.limitador:
+            config_embedding = replace(config_embedding, tamanho_lote=self.config.carga.tamanho_lote)
         return etapa_indexacao.executar(
-            self.config.embedding,
+            config_embedding,
             self.embutidor,
             self.repositorio,
             self.config.caminhos.chunks,

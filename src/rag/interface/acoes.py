@@ -127,6 +127,22 @@ def acao_chunking(servico: Servico, *, interativo: bool = True, arquivo_saida: P
     return not resultado.houve_falha
 
 
+def _avisar_carga(servico: Servico) -> None:
+    """Diz que a carga está limitada — senão o tempo maior parece defeito."""
+    fracao = servico.config.carga.fracao
+    if fracao < 1:
+        console.detalhe(f"  Carga limitada a {fracao:.0%} do tempo (carga.fracao) — mais lento, mais frio.")
+
+
+def _relatar_descanso(servico: Servico) -> None:
+    limitador = servico.__dict__.get("limitador")
+    if limitador and limitador.ocupado:
+        console.detalhe(
+            f"  Trabalho {limitador.ocupado:.0f} s, descanso {limitador.descansado:.0f} s "
+            f"(limitador em {limitador.fracao:.0%})."
+        )
+
+
 def acao_indexar(servico: Servico, *, interativo: bool = True, recriar: bool = False, retomar: bool = True) -> bool:
     """Etapa 3 — embedding e indexação. A mais cara do pipeline."""
     console.titulo("Etapa 3 — embedding e indexação")
@@ -149,6 +165,7 @@ def acao_indexar(servico: Servico, *, interativo: bool = True, recriar: bool = F
             console.info("Cancelado.")
             return True
 
+    _avisar_carga(servico)
     try:
         progresso = console.Progresso("indexando")
         resultado = servico.indexar(retomar=retomar, recriar_colecao=recriar, progresso=progresso)
@@ -159,6 +176,7 @@ def acao_indexar(servico: Servico, *, interativo: bool = True, recriar: bool = F
 
     _relatar(resultado, f"chunks indexados em '{resultado.detalhes['colecao']}'")
     console.detalhe(f"  Total na coleção agora: {servico.repositorio.contar_pontos()} pontos.")
+    _relatar_descanso(servico)
     return not resultado.houve_falha
 
 
@@ -352,10 +370,17 @@ def acao_dialogar(servico: Servico, pergunta: str, k: int | None = None) -> bool
 
 def _linha_de_metricas(resultado: ResultadoDaAvaliacao) -> str:
     trechos = f"  trechos/caso={resultado.trechos_por_caso:.1f}" if resultado.k is None else ""
+    # O corte do orçamento aparece sempre que medido, mesmo zerado: "0 cortes"
+    # é a confirmação de que o recall acima é o que chega ao modelo.
+    orcamento = ""
+    if resultado.mediu_orcamento:
+        orcamento = f"  cortes={resultado.casos_cortados}/{resultado.total}"
+        if resultado.recall_no_prompt != resultado.recall:
+            orcamento += f"  recall no prompt={resultado.recall_no_prompt:.0%}"
     return (
         f"recall{resultado.descricao_do_k}={resultado.recall:.0%}  "
         f"cobertura={resultado.cobertura_media:.0%}  "
-        f"mrr={resultado.mrr:.3f}{trechos}  ({resultado.segundos:.1f}s)"
+        f"mrr={resultado.mrr:.3f}{trechos}{orcamento}  ({resultado.segundos:.1f}s)"
     )
 
 
@@ -404,6 +429,7 @@ def acao_avaliar(
     else:
         descricao = f"k={k_efetivo}"
     console.detalhe(f"{len(casos)} casos de {caminho.name}, {descricao}")
+    _avisar_carga(servico)
 
     # Quarenta decomposições impressas afogariam o resultado, que é o que
     # interessa aqui. A barra de progresso já diz que algo está acontecendo.
@@ -413,7 +439,9 @@ def acao_avaliar(
     def medir(recuperador, rotulo: str):
         progresso = console.Progresso(rotulo)
         try:
-            return avaliacao.avaliar(casos, recuperador, k_efetivo, rotulo, progresso=progresso)
+            return avaliacao.avaliar(
+                casos, recuperador, k_efetivo, rotulo, progresso=progresso, ajustar=servico.motor.trechos_que_cabem
+            )
         finally:
             progresso.encerrar()
 
