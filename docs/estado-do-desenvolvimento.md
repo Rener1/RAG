@@ -1,6 +1,6 @@
 # Estado do desenvolvimento
 
-**Última atualização:** 2026-09-02 · 289 testes · commit anterior `fa3d7c8`
+**Última atualização:** 2026-10-05 · 313 testes · commit anterior `ca0fae2`
 **Padrões em vigor:** `busca.limiar_relativo = 0,90` (quantidade dinâmica) · `busca.k = 8` (reserva) ·
 `busca.reordenar = false` · `intermediacao.decompor = true` ·
 `geracao.num_ctx = 8192` · `marco.ativo = generico`
@@ -36,8 +36,9 @@ indicado, ele saiu de validade.
 | Sessão dialógica | triagem, problematização, consulta consolidada | `sessao.py` | 31 |
 | Configuração | padrões → `config.toml` → flags, com origem rastreável | `config.py` | 21 |
 | Janela de contexto | `num_ctx` explícito e orçamento de trechos | `geracao.py`, `orquestrador.py` | 17 |
-| Avaliação (camada 1) | `recall@k`, cobertura e MRR contra gabarito | `avaliacao.py` | 28 |
+| Avaliação (camada 1) | `recall@k`, cobertura, MRR e cortes do orçamento de contexto contra gabarito | `avaliacao.py` | 32 |
 | Regras estruturais | as duas regras de modularidade, mecanizadas | `tests/test_estrutura.py` | 3 |
+| Limitador de carga | fração de uso por lote e threads de CPU do Ollama, para poupar o hardware | `carga.py` | 18 |
 
 Interface completa nas três portas (menu, CLI, ações) para tudo acima — não
 existe capacidade alcançável só por uma delas.
@@ -135,6 +136,11 @@ irrelevante — só mede onde a lista deixa de se parecer com o próprio topo.
 | Busca direta | 88% | 74% | 0,601 | 8,4 |
 | **Mediação + reordenação** | **95%** | **79%** | **0,682** | **6,5** |
 
+**Remedido em 2026-10-05, no mesmo índice e mesmo gabarito: 88% / 78% / 0,647**
+(busca direta 85% / 72%). Os 95% acima não se reproduziram, e a causa não foi
+investigada — o que mudou entre as duas medições está no histórico do git, não aqui.
+Comparações novas devem usar a remedição como linha de base.
+
 Por tipo de demanda: `exploracao` sobe de 80% a 90%, `produto_acabado` de 80% a
 100%. E entrega **menos** trechos que a busca direta — material melhor
 selecionado, prompt menor.
@@ -225,6 +231,101 @@ números acima **subestimam** um pouco o sistema final.
 O truncamento silencioso estava marcado como risco em `fase-2-prototipo.md` §7.
 Está fechado para o corpus atual — mas a verificação é do par modelo+corpus, e
 precisa ser refeita ao trocar qualquer um dos dois.
+
+**Reindexar não custa mais horas.** Com o embedding na GPU, o corpus inteiro (38 M
+caracteres) leva ~17 min sem limite e ~30–35 min com `--carga 0.75`. Medido ao
+indexar as coleções abaixo.
+
+### Tamanho do recorte — agrupado de 2000 vence (2026-10-05)
+
+`paragrafo_agrupado` junta parágrafos consecutivos até o teto, em vez de descartar
+os curtos. Três coleções, mesmo gabarito, mesma configuração (`--carga 0.75`, no
+container com GPU para o reordenador):
+
+```bash
+python3 main.py --chunks chunks_agrupado_2000.jsonl chunking --estrategia paragrafo_agrupado --tamanho-maximo 2000
+python3 main.py --carga 0.75 --chunks chunks_agrupado_2000.jsonl --colecao uesp_lore_agrupado_2000 indexar
+python3 main.py --chunks chunks_agrupado_2000.jsonl --colecao uesp_lore_agrupado_2000 avaliar --comparar
+```
+
+| Coleção | chunks | mediana | busca direta (k=8) | mediação + reordenação | dinâmico α=0,90 |
+|---|---|---|---|---|---|
+| `uesp_lore` (`paragrafo`, atual) | 69285 | 348 ch · ~85 tok | 85% / 72% / 0,604 | 88% / 78% / 0,647 | 88% / 74% · 10,3 trechos · 0 cortes |
+| `uesp_lore_agrupado_1000` | 51522 | 832 ch · ~200 tok | 82% / 67% / 0,620 | 90% / 76% / 0,711 | 90% / 79% · 12,3 trechos · 0 cortes |
+| **`uesp_lore_agrupado_2000`** | **26808** | **1637 ch · ~400 tok** | **90% / 79% / 0,751** | **95% / 81% / 0,742** | 92% / 80% · 9,0 trechos · **4 cortes** |
+
+Formato: recall / cobertura / MRR. "Cortes" = casos em que o orçamento de contexto
+descartaria trecho recuperado — medido pelo harness desde esta rodada.
+
+Leituras:
+
+- **2000 ganha em tudo que pesa**: +5 de recall e +7 de cobertura na busca direta,
+  e o MRR sobe de 0,60 para 0,75 — a página certa chega mais perto do topo.
+- **O caso que motivou a investigação se resolve**: "monte um panorama das raças de
+  Tamriel" traz `Lore:Races` em 7º no recorte atual, 4º no de 1000 e **1º** no de
+  2000. No atual o topo era de frases de abertura genéricas ("A collection of
+  apparel styles worn by the denizens of Tamriel"), que casam com qualquer
+  pergunta ampla por não dizerem nada.
+- **1000 não é meio-termo**: perde na busca direta e só ganha com mediação.
+- **Com 2000, o `k` dinâmico começa a estourar a janela**: 4 de 40 casos cortados,
+  recall no prompt 90% em vez de 92%. Em `k = 8` fixo, zero cortes. Recorte maior
+  pede `k_maximo` menor, ou `num_ctx` maior — a decisão entra junto com a promoção.
+
+**Por que 2000 e não 512 tokens (~2600 caracteres):** o reordenador trunca cada par
+pergunta+trecho em `reordenacao.tamanho_maximo = 512` tokens. Acima de ~2000
+caracteres a cauda do recorte sumiria do julgamento dele sem aviso. Subir o teto
+exige subir aquele campo junto (o bge-reranker-v2-m3 aceita mais, a custo de tempo).
+
+**Não promovido a padrão.** Trocar exige regenerar `data/chunks.jsonl` (o sha256
+`a991de28…` muda) e apontar a coleção padrão para a nova. É decisão de calendário —
+ver "Decisões pendentes".
+
+### Limitador de carga — poupar o hardware de dentro do app (2026-10-05)
+
+`[carga] fracao` e `--carga F`. Depois de cada lote o pipeline descansa
+`duração × (1/F − 1)`, num limitador só para o processo inteiro (embutidor,
+reordenador e gerador de apoio). Medido na RX 9070 XT lendo `freq1_input`,
+`power1_average` e `temp2_input` do sysfs, 40–60 s por modo:
+
+| Modo | vazão | clock | potência mediana / máx | junção |
+|---|---|---|---|---|
+| sem limite (4 × lote 16) | 38,8k ch/s | 3000 MHz | 298 / 352 W | 74–79 °C |
+| rajada 5 s + descanso 5 s | 23,0k | alterna 1237↔3038 | 31 / 338 W | **oscila 48↔77 °C** |
+| teto de vazão 20k ch/s (estilo FPS) | 19,9k | 1603 | 96 / 287 W | 49–72 °C |
+| **fração 75%, lote 8** | **15,9k** | **1568** | **90 / 112 W** | **48–55 °C** |
+| fração 50%, lote 8 | 10,9k | 1232 | 51 / 184 W | 46–57 °C |
+
+- **Descanso longo é ciclo térmico** — a média cai, mas a placa aquece e esfria a
+  cada rajada, que é o que fadiga solda. Descanso de frações de segundo faz o
+  governador da própria placa baixar clock e tensão, e a temperatura fica estável.
+- **Teto de vazão briga com o governador**: o clock baixa, a vazão cai abaixo do
+  alvo, o limitador para de descansar e os picos voltam. Rejeitado.
+- **Pausa mínima maior não ajuda**: acumular o descanso até 100, 250 ou 500 ms
+  subiu o pico de 104 W para 113, 132 e 214 W. A pausa por lote fica.
+
+**CPU.** Nosso processo usa ~1% de um núcleo; quem esquenta a CPU é o
+`llama-server` do Ollama, com **~4 núcleos em espera ativa** pela GPU.
+`carga.threads_de_cpu` manda `num_thread` em cada requisição:
+
+| `num_thread` | vazão | CPU do Ollama |
+|---|---|---|
+| padrão | 30,6k ch/s | 419% de um núcleo |
+| 2 | 30,7k ch/s | 149% |
+
+Mesma vazão, um terço da CPU. Fica em 0 (padrão do Ollama) até ser medido na
+geração; mudar o valor faz o Ollama recarregar o modelo uma vez.
+
+**Em aberto — picos na indexação longa.** Nas duas indexações reais com
+`--carga 0.75` (64 min no total), o limitador cumpriu a proporção (descanso de
+25% do tempo nas duas), mas a placa ficou em ~80 W só nos primeiros ~25 min; de
+17:28 em diante passou a 200–250 W e junção de 82–88 °C, por 40 min seguidos.
+Não reproduziu em 150 s do mesmo caminho de código (80 W, 51–59 °C), nem havia
+outro processo na GPU (`rocm-smi --showpids`). Hipóteses não testadas: efeito que
+só aparece com o tempo (temperatura acumulada mudando a política do governador),
+ou trechos do corpus que mudam a duração dos lotes. **Até isso ser entendido, o
+limitador não deve ser tratado como garantia de potência em execução longa.**
+Para investigar: indexar de novo com o monitor de sysfs e registrar a duração de
+cada lote junto com o horário.
 
 ### Limiar de redundância da mediação
 
@@ -320,7 +421,8 @@ para mexer em um quarto do acervo, contra a literatura.
 
 O que a mesma fonte aponta a favor é outra coisa: o tamanho de referência é ~512
 tokens, e a **mediana dos nossos chunks é 85 tokens** — de quatro a seis vezes
-menor. É esse o experimento que vale, e ele está pendente.
+menor. Esse experimento foi feito em 2026-10-05 e o agrupado de 2000 caracteres
+ganhou (ver "Tamanho do recorte").
 
 ---
 
@@ -328,8 +430,8 @@ menor. É esse o experimento que vale, e ele está pendente.
 
 | # | Item | Destravado por | Invalida o índice? |
 |---|---|---|---|
-| 1 | **Tamanho de chunk** — testar ~512 tokens contra os 85 atuais | Nada; `paragrafo_agrupado` já existe e o harness já mede | **sim** — coleção separada |
-| 2 | **Tamanho de chunk** — testar ~512 tokens contra os 85 atuais | Nada; `paragrafo_agrupado` já existe e o harness já mede | **sim** — roda em coleção separada |
+| 1 | **Promover `paragrafo_agrupado` / 2000** a padrão, com `k_maximo` ou `num_ctx` reajustado (4/40 cortes no dinâmico) | Decisão — medido e indexado em `uesp_lore_agrupado_2000` | **sim** — já indexado; a troca é de configuração |
+| 2 | Entender os picos de 200–250 W na indexação longa com `--carga 0.75` | Indexar com monitor de sysfs e duração de cada lote | não |
 | 3 | Preencher página e offset nos campos de proveniência do `Chunk` | Troca para o acervo do IPF, que já obriga a reindexar | sim, junto da troca |
 | 4 | **MMR** — diversificação contínua, em vez de teto rígido | `buscar(..., com_vetores=True)` no protocolo | não |
 | 5 | Ligar o **BM25 híbrido** por padrão | Decidir se +2 de recall paga +37% de tempo | não |
@@ -342,15 +444,17 @@ Os caminhos A1–A6 estão detalhados em
 
 **Regra que organiza a coluna da direita:** toda mudança que invalida o índice
 espera pela próxima reindexação obrigatória, e todas entram juntas. Reindexar
-custa horas.
+custava horas; com o embedding na GPU são ~17 min, o que enfraquece a regra para
+experimentos em coleção separada, mas não para a coleção padrão.
 
 ---
 
 ## Decisões pendentes
 
-1. **Quando testar o tamanho de chunk.** É a maior distância entre o que fazemos
-   (85 tokens) e a referência dos benchmarks (512), e o harness já mede — mas
-   exige reindexar numa coleção paralela, o que são horas de GPU.
+1. **Promover o recorte agrupado de 2000 a padrão?** Mediu melhor em todas as
+   configurações. A troca é `chunking.estrategia`, `chunking.tamanho_maximo`,
+   `vetorial.colecao` (ou regenerar `chunks.jsonl` e reindexar `uesp_lore`), e
+   decidir o que fazer com os 4 cortes do `k` dinâmico.
 2. **Ligar o BM25 híbrido por padrão?** Ganha com idioma casado, perde sem. Como
    a mediação hoje traduz, o cenário é o favorável — mas medi antes do conserto
    da quantidade e o número precisa ser refeito.
@@ -360,7 +464,7 @@ custa horas.
 ## Invariantes — o que não pode quebrar
 
 ```bash
-python3 -m unittest discover -s tests -t tests   # 216 testes, sem rede nem serviço
+python3 -m unittest discover -s tests -t tests   # 313 testes, sem rede nem serviço
 ruff check src/ tests/ main.py                   # lint
 python3 main.py ambiente                         # serviços, modelos e artefatos
 sha256sum data/chunks.jsonl                      # a991de28…  (69285 chunks)

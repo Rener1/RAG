@@ -40,6 +40,8 @@ python3 main.py                    # menu
 python3 main.py ambiente           # diagnóstico (use antes de investigar qualquer falha)
 python3 main.py chunking           # --saida OUTRO.jsonl para não destruir o chunks.jsonl indexado
 python3 main.py indexar            # retoma de onde parou; --recriar para refazer
+python3 main.py --carga 0.75 indexar   # poupa o hardware: descansa 25% do tempo, por lote
+python3 main.py --chunks X.jsonl --colecao X indexar   # experimento sem tocar no índice padrão
 python3 main.py buscar "..."       # só recuperação; --sem-intermediar desliga a mediação
 python3 main.py perguntar "..."    # ciclo RAG completo; --direto pula a problematização
 python3 main.py avaliar --comparar # recall@k com e sem mediação (não gera texto)
@@ -68,6 +70,7 @@ src/rag/
   avaliacao.py       recall@k contra o gabarito de avaliacao/casos.jsonl
   acelerador.py      detecta GPU e diz qual build de torch instalar
   lexico.py          BM25 e a fusão dele com a busca densa (desligado por padrão)
+  carga.py           limitador de carga: embrulha embutidor, reordenador e gerador de apoio
   servico.py         onde as implementações concretas encontram os protocolos
   clientes/          Ollama, Qdrant, UESP, sessão HTTP com repetição
   etapas/            download, chunking, indexacao, recuperacao, geracao
@@ -105,7 +108,7 @@ Cada etapa consome a saída da anterior:
 ```
 download    → data/corpus_uesp/*.txt   (~9k páginas, demorado)
 chunking    → data/chunks.jsonl
-indexacao   → coleção uesp_lore no Qdrant   (horas)
+indexacao   → coleção uesp_lore no Qdrant   (~17 min na GPU; ~35 com --carga 0.75)
 recuperacao → trechos
 geracao     → resposta
 ```
@@ -249,7 +252,8 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 - **Mudar a estratégia de chunking invalida o índice inteiro.** A saída de `chunking` com a
   estratégia padrão (`paragrafo`) é byte a byte igual à do protótipo original — 69285 chunks,
   sha256 `a991de28...`. `paragrafo_agrupado` existe e é melhor (não descarta parágrafo curto),
-  mas trocar exige reindexar tudo, o que leva horas. Não troque de passagem. **Regra que sai
+  mas trocar exige reindexar tudo. Não troque de passagem — o agrupado de 2000 já está
+  medido (melhor) e indexado em `uesp_lore_agrupado_2000`, esperando decisão de promoção. **Regra que sai
   disso: toda mudança que invalida o índice espera pela próxima reindexação obrigatória, e todas
   entram juntas** — os caminhos e a ordem estão em `docs/recorte-de-conteudo-caminhos.md`.
 - **`DIMENSAO_VETOR` tem que bater com a saída do modelo de embedding.** Isso agora é
@@ -257,6 +261,15 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   mais o modo de falha silencioso que era. Ao trocar o modelo, use `indexar --recriar`.
 - **A indexação retoma por padrão.** Chunks já indexados são pulados (consulta por `uuid5` do
   `chunk_id`), então repetir a etapa custa segundos em vez de horas. `--sem-retomada` desliga.
+- **O limitador de carga descansa por lote, e curto de propósito.** Rajada de segundos
+  com pausa de segundos dá a mesma média com a placa oscilando 48↔77 °C — ciclo térmico,
+  o estresse que se quer evitar. Teto de vazão (estilo FPS) também foi medido e rejeitado:
+  briga com o governador da GPU. E o limitador é **um só por processo**, segurando lock
+  durante a pausa; pausa por thread não limita nada com 4 workers. Números em
+  `docs/estado-do-desenvolvimento.md`. Há um efeito em aberto (picos em execução longa).
+- **Quem esquenta a CPU no embedding é o `llama-server`, não o app** — ~4 núcleos em
+  espera ativa pela GPU. `carga.threads_de_cpu = 2` corta para ~1,5 núcleo sem perder
+  vazão (medido no embedding; na geração, não).
 - **Os padrões ficam em `src/rag/config.py`**, não espalhados pelos módulos e não em `.env`. Por
   cima deles entra o `config.toml` (opcional, gitignored), e por cima dele as flags e o menu.
   Ajuste de menu e de flag vale só para aquela execução até ser gravado com `config --salvar`.
@@ -267,7 +280,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-289 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+313 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,
