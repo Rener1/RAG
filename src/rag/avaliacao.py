@@ -44,6 +44,10 @@ class CasoDeTeste:
     paginas_esperadas: tuple[str, ...]
     tipo_de_demanda: str = "indefinido"
     observacao: str = ""
+    # Perguntas anteriores da mesma conversa, da mais antiga para a mais recente.
+    # Vazio = pergunta avulsa. Com histórico, `demanda` é o seguimento — "e os
+    # Khajiit?" —, e as páginas esperadas são as do seguimento entendido.
+    historico: tuple[str, ...] = ()
 
 
 def _paginas_em_ordem(trechos: list[TrechoRecuperado]) -> tuple[str, ...]:
@@ -68,6 +72,7 @@ class ResultadoDeCaso:
     # avaliação rodou sem orçamento), e aí tudo o que foi recuperado conta.
     paginas_no_prompt: tuple[str, ...] | None = None
     trechos_no_prompt: int | None = None
+    consulta: str = ""  # o que foi à busca, quando difere da demanda (reescrita de seguimento)
 
     @property
     def acertos(self) -> int:
@@ -243,6 +248,7 @@ def carregar_casos(caminho: Path) -> list[CasoDeTeste]:
                 paginas_esperadas=tuple(dados["paginas_esperadas"]),
                 tipo_de_demanda=str(dados.get("tipo_de_demanda", "indefinido")),
                 observacao=str(dados.get("observacao", "")),
+                historico=tuple(str(p) for p in dados.get("historico", [])),
             )
         )
 
@@ -262,6 +268,7 @@ def avaliar(
     rotulo: str = "",
     progresso: RelatorProgresso = sem_progresso,
     ajustar: Callable[[str, list[TrechoRecuperado]], list[TrechoRecuperado]] | None = None,
+    reescrever: Callable[[tuple[str, ...], str], str] | None = None,
 ) -> ResultadoDaAvaliacao:
     """Roda o gabarito contra um recuperador. Não gera texto nenhum.
 
@@ -272,13 +279,20 @@ def avaliar(
     `ajustar` é o corte do orçamento de contexto (`MotorRag.trechos_que_cabem`).
     Com ele, cada caso registra também o que chegaria ao modelo: recortes
     maiores ou `k` maior podem recuperar bem e ainda assim não caber na janela.
+
+    `reescrever` recebe o histórico e o seguimento e devolve a pergunta que vai
+    à busca (`Conversa.reescrever`). Sem ele, o seguimento vai cru — é a linha de
+    base da memória de conversa.
     """
     inicio = time.monotonic()
     resultados: list[ResultadoDeCaso] = []
 
     for numero, caso in enumerate(casos, start=1):
-        trechos = recuperador.buscar(caso.demanda, k=k)
-        no_prompt = ajustar(caso.demanda, trechos) if ajustar else None
+        consulta = caso.demanda
+        if reescrever is not None and caso.historico:
+            consulta = reescrever(caso.historico, caso.demanda)
+        trechos = recuperador.buscar(consulta, k=k)
+        no_prompt = ajustar(consulta, trechos) if ajustar else None
 
         resultados.append(
             ResultadoDeCaso(
@@ -287,6 +301,7 @@ def avaliar(
                 trechos_recuperados=len(trechos),
                 paginas_no_prompt=_paginas_em_ordem(no_prompt) if no_prompt is not None else None,
                 trechos_no_prompt=len(no_prompt) if no_prompt is not None else None,
+                consulta=consulta if consulta != caso.demanda else "",
             )
         )
         progresso(numero, len(casos), caso.identificador)

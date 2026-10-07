@@ -161,6 +161,20 @@ class EstadoDaSessao(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class TrocaDaConversa:
+    """Uma pergunta respondida, guardada para a seguinte entender o contexto.
+
+    `pergunta` é como a pessoa escreveu; `consulta` é a versão autônoma que foi
+    à busca. A reescrita da próxima pergunta usa a consulta, que já resolveu as
+    referências — reescrever a partir da pergunta crua acumularia ambiguidade.
+    """
+
+    pergunta: str
+    consulta: str
+    resposta: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class Turno:
     """Uma fala, de quem pergunta ou do sistema."""
 

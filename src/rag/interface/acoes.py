@@ -8,7 +8,7 @@ comando alcance.
 """
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from .. import avaliacao
@@ -18,6 +18,7 @@ from ..acelerador import arquiteturas_amd
 from ..acelerador import detectar as detectar_acelerador
 from ..ambiente import Estado, pronto_para_perguntar, verificar
 from ..avaliacao import ResultadoDaAvaliacao
+from ..conversa import Conversa
 from ..erros import ErroPipeline
 from ..etapas.geracao import validar_citacoes
 from ..mediacao import ConsultaDecomposta
@@ -231,7 +232,21 @@ def _mostrar_trechos(trechos: list[TrechoRecuperado]) -> None:
         console.detalhe(f"     {trecho.previa()}")
 
 
-def acao_buscar(servico: Servico, pergunta: str, k: int | None = None) -> bool:
+def _entender_na_conversa(conversa: Conversa | None, pergunta: str) -> str:
+    """A pergunta como vai à busca — reescrita quando é seguimento.
+
+    A reescrita aparece na tela pelo mesmo motivo das sub-consultas: quem
+    pergunta precisa ver o que o sistema entendeu, e corrigir se entendeu errado.
+    """
+    if conversa is None:
+        return pergunta
+    reescrita = conversa.reescrever(pergunta)
+    if reescrita.mudou:
+        console.detalhe(f"  entendida como: {reescrita.consulta}")
+    return reescrita.consulta
+
+
+def acao_buscar(servico: Servico, pergunta: str, k: int | None = None, conversa: Conversa | None = None) -> bool:
     """Etapa 4 — só recuperação, sem gerar texto.
 
     Serve para avaliar a recuperação isoladamente: se o trecho certo não
@@ -239,7 +254,8 @@ def acao_buscar(servico: Servico, pergunta: str, k: int | None = None) -> bool:
     """
     inicio = time.monotonic()
     try:
-        trechos = servico.recuperador.buscar(pergunta, k=k)
+        consulta = _entender_na_conversa(conversa, pergunta)
+        trechos = servico.recuperador.buscar(consulta, k=k)
     except ErroPipeline as erro:
         console.erro_do_pipeline(erro)
         return False
@@ -251,6 +267,8 @@ def acao_buscar(servico: Servico, pergunta: str, k: int | None = None) -> bool:
 
     console.info(f"\n{len(trechos)} trechos recuperados em {time.monotonic() - inicio:.1f}s:")
     _mostrar_trechos(trechos)
+    if conversa is not None:
+        conversa.registrar(pergunta, consulta)
     return True
 
 
@@ -259,8 +277,11 @@ def _apresentar_resposta(
     trechos: list[TrechoRecuperado],
     fluxo: Iterator[str],
     inicio: float,
-) -> bool:
+) -> str | None:
     """Mostra as fontes, escreve a resposta conforme sai, e confere as citações.
+
+    Devolve o texto da resposta, ou `None` se ela não chegou ao fim — é o texto
+    que a conversa guarda para a pergunta seguinte.
 
     Extraído para ser o mesmo em `acao_perguntar` e `acao_dialogar`: as duas
     terminam igual, e duplicar o tratamento de interrupção e de erro de fluxo
@@ -280,11 +301,11 @@ def _apresentar_resposta(
     except ErroPipeline as erro:
         escritor.encerrar()
         console.erro_do_pipeline(erro)
-        return False
+        return None
     except KeyboardInterrupt:
         escritor.encerrar()
         console.aviso("Geração interrompida.")
-        return False
+        return None
 
     invalidas = validar_citacoes("".join(pedacos), trechos)
     if invalidas:
@@ -294,15 +315,20 @@ def _apresentar_resposta(
         )
 
     console.detalhe(f"\n({time.monotonic() - inicio:.1f}s, modelo {servico.config.geracao.modelo})")
-    return True
+    return "".join(pedacos)
 
 
-def acao_perguntar(servico: Servico, pergunta: str, k: int | None = None) -> bool:
+def _historico(conversa: Conversa | None) -> str:
+    return conversa.historico_para_o_prompt() if conversa is not None else ""
+
+
+def acao_perguntar(servico: Servico, pergunta: str, k: int | None = None, conversa: Conversa | None = None) -> bool:
     """Etapa 5 — ciclo RAG completo, com a resposta saindo conforme é gerada."""
     inicio = time.monotonic()
     try:
         _avisar_colecao_do_marco(servico)
-        trechos, fluxo = servico.motor.responder_em_fluxo(pergunta, k=k)
+        consulta = _entender_na_conversa(conversa, pergunta)
+        trechos, fluxo = servico.motor.responder_em_fluxo(consulta, k=k, historico=_historico(conversa))
     except ErroPipeline as erro:
         console.erro_do_pipeline(erro)
         return False
@@ -312,10 +338,13 @@ def acao_perguntar(servico: Servico, pergunta: str, k: int | None = None) -> boo
         console.detalhe("  → Confira o diagnóstico do ambiente e se a coleção está indexada.")
         return False
 
-    return _apresentar_resposta(servico, trechos, fluxo, inicio)
+    resposta = _apresentar_resposta(servico, trechos, fluxo, inicio)
+    if resposta is not None and conversa is not None:
+        conversa.registrar(pergunta, consulta, resposta)
+    return resposta is not None
 
 
-def acao_dialogar(servico: Servico, pergunta: str, k: int | None = None) -> bool:
+def acao_dialogar(servico: Servico, pergunta: str, k: int | None = None, conversa: Conversa | None = None) -> bool:
     """Etapa 5 em modo dialógico — pode devolver perguntas antes de responder.
 
     Exige terminal: as perguntas devolvidas não têm para quem ir sem alguém do
@@ -324,10 +353,11 @@ def acao_dialogar(servico: Servico, pergunta: str, k: int | None = None) -> bool
     """
     inicio = time.monotonic()
     dialogo = servico.dialogo
-    sessao = dialogo.iniciar(pergunta)
 
     try:
         _avisar_colecao_do_marco(servico)
+        consulta = _entender_na_conversa(conversa, pergunta)
+        sessao = dialogo.iniciar(consulta)
         demanda = dialogo.classificar(sessao)
 
         if sessao.estado is EstadoDaSessao.PROBLEMATIZACAO:
@@ -346,12 +376,11 @@ def acao_dialogar(servico: Servico, pergunta: str, k: int | None = None) -> bool
             resposta = console.perguntar("resposta")
             dialogo.receber(sessao, resposta)
 
-        trechos, fluxo = dialogo.responder(sessao, k=k)
+        trechos, fluxo = dialogo.responder(sessao, k=k, historico=_historico(conversa))
     except ErroPipeline as erro:
         console.erro_do_pipeline(erro)
         return False
     except KeyboardInterrupt:
-        dialogo.encerrar(sessao)
         console.aviso("\nConversa encerrada.")
         return False
 
@@ -360,9 +389,42 @@ def acao_dialogar(servico: Servico, pergunta: str, k: int | None = None) -> bool
         console.detalhe("  → Confira o diagnóstico do ambiente e se a coleção está indexada.")
         return False
 
-    resultado = _apresentar_resposta(servico, trechos, fluxo, inicio)
+    resposta = _apresentar_resposta(servico, trechos, fluxo, inicio)
     dialogo.encerrar(sessao)
-    return resultado
+    if resposta is not None and conversa is not None:
+        conversa.registrar(pergunta, consulta, resposta)
+    return resposta is not None
+
+
+# ── modo conversa ─────────────────────────────────────────────────────────
+
+COMANDO_NOVA_CONVERSA = "/nova"
+
+ExecutarUma = Callable[..., bool]
+
+
+def acao_conversar(servico: Servico, executar_uma: ExecutarUma, k: int | None = None) -> bool:
+    """Laço de perguntas com memória — o mesmo para a CLI e para o menu.
+
+    Cada linha é uma pergunta; linha vazia encerra; `/nova` esquece o que foi
+    dito e começa outra conversa. Com `conversa.ligada = false`, cada pergunta
+    chega sozinha, como antes. A memória vive só neste laço: sair dele é
+    esquecer.
+    """
+    conversa = servico.nova_conversa()
+    if conversa is not None:
+        console.detalhe(f"Com memória das últimas perguntas. '{COMANDO_NOVA_CONVERSA}' começa outra conversa.")
+
+    while True:
+        pergunta = console.perguntar("\npergunta")
+        if not pergunta:
+            # Sair da conversa é uso normal, não falha.
+            return True
+        if pergunta.strip().casefold() == COMANDO_NOVA_CONVERSA:
+            conversa = servico.nova_conversa()
+            console.info("Nova conversa — o que foi dito antes não conta mais.")
+            continue
+        executar_uma(servico, pergunta, k=k, conversa=conversa)
 
 
 # ── avaliação ─────────────────────────────────────────────────────────────
@@ -389,6 +451,19 @@ def _mostrar_por_tipo(resultado: ResultadoDaAvaliacao) -> None:
         console.detalhe(f"    {tipo:<16} {quantidade:>3} casos   recall={recall:.0%}")
 
 
+def _k_da_avaliacao(servico: Servico, k: int | None) -> int | None:
+    """O `k` que a avaliação mede e rotula. `None` = quantidade dinâmica.
+
+    Com reordenação o `k` é fixo: o corte relativo pressupõe a lista ordenada
+    por cosseno, e o cross-encoder ordena por outro critério. Rotular "k
+    dinâmico" ali descreveria errado o que de fato rodou.
+    """
+    if k is not None:
+        return k
+    dinamico = servico.config.busca.limiar_relativo > 0 and not servico.config.busca.reordenar
+    return None if dinamico else servico.config.busca.k
+
+
 def acao_avaliar(
     servico: Servico,
     k: int | None = None,
@@ -409,8 +484,7 @@ def acao_avaliar(
     # Com reordenação o `k` volta a ser fixo: o corte relativo pressupõe a lista
     # ordenada por cosseno, e o cross-encoder ordena por outro critério. Dizer
     # "k dinâmico" ali seria rotular errado o que de fato aconteceu.
-    dinamico = servico.config.busca.limiar_relativo > 0 and not servico.config.busca.reordenar
-    k_efetivo = k if k is not None else (None if dinamico else servico.config.busca.k)
+    k_efetivo = _k_da_avaliacao(servico, k)
 
     try:
         casos = avaliacao.carregar_casos(caminho)
@@ -481,6 +555,75 @@ def acao_avaliar(
     else:
         console.detalhe("\n  Nenhum caso mudou de posição.")
 
+    return True
+
+
+def acao_avaliar_conversa(servico: Servico, k: int | None = None, caminho_dos_casos: Path | None = None) -> bool:
+    """Mede a memória de conversa: o seguimento cru contra o reescrito.
+
+    Mesmo recuperador, mesmo índice, mesmo gabarito; muda só o que vai à busca.
+    Não gera resposta — a reescrita chama o modelo, como a mediação já chama,
+    mas a métrica continua sendo de recuperação.
+    """
+    caminho = caminho_dos_casos or servico.config.caminhos.casos_de_conversa
+    try:
+        casos = avaliacao.carregar_casos(caminho)
+    except ErroPipeline as erro:
+        console.erro_do_pipeline(erro)
+        return False
+
+    console.titulo("Avaliação da memória de conversa")
+    seguimentos = sum(1 for caso in casos if caso.historico)
+    console.detalhe(f"{len(casos)} casos de {caminho.name}, {seguimentos} com histórico")
+    _avisar_carga(servico)
+
+    k = _k_da_avaliacao(servico, k)
+
+    def reescrever(historico: tuple[str, ...], pergunta: str) -> str:
+        conversa = Conversa.com_perguntas_anteriores(servico.gerador_de_apoio, servico.config.conversa, list(historico))
+        return conversa.reescrever(pergunta).consulta
+
+    relator_anterior = servico.ao_decompor
+    servico.ao_decompor = lambda consulta: None
+
+    def medir(rotulo: str, funcao):
+        progresso = console.Progresso(rotulo)
+        try:
+            return avaliacao.avaliar(
+                casos,
+                servico.recuperador,
+                k,
+                rotulo,
+                progresso=progresso,
+                ajustar=servico.motor.trechos_que_cabem,
+                reescrever=funcao,
+            )
+        finally:
+            progresso.encerrar()
+
+    try:
+        cru = medir("seguimento cru", None)
+        reescrito = medir("reescrito", reescrever)
+    except ErroPipeline as erro:
+        console.erro_do_pipeline(erro)
+        return False
+    finally:
+        servico.ao_decompor = relator_anterior
+
+    console.secao("Comparação")
+    console.info(f"  seguimento cru   {_linha_de_metricas(cru)}")
+    console.info(f"  reescrito        {_linha_de_metricas(reescrito)}")
+    console.info(f"\n  diferença de recall: {reescrito.recall - cru.recall:+.1%}")
+
+    console.secao("O que foi à busca")
+    antes = cru.por_identificador()
+    for resultado in reescrito.resultados:
+        caso = resultado.caso
+        if not caso.historico:
+            continue
+        posicoes = f"{_posicao(antes[caso.identificador].posicao_do_primeiro_acerto)} -> {_posicao(resultado.posicao_do_primeiro_acerto)}"
+        console.info(f"  {caso.identificador:<9} {posicoes:<22} {caso.demanda[:40]}")
+        console.detalhe(f"            → {resultado.consulta or '(intacta)'}")
     return True
 
 

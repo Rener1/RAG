@@ -18,6 +18,7 @@ from . import marco as marco_pedagogico
 from .carga import EmbutidorLimitado, GeradorLimitado, LimitadorDeCarga, ReordenadorLimitado
 from .clientes import ClienteOllama, ColetorUESP, GeradorOllama, ReordenadorLocal, RepositorioQdrant
 from .config import CONFIG, Config, ConfiguracaoCarregada
+from .conversa import Conversa
 from .etapas import RelatorProgresso, sem_progresso
 from .etapas import chunking as etapa_chunking
 from .etapas import download as etapa_download
@@ -199,6 +200,17 @@ class Servico:
             orcamento_em_tokens=self.orcamento_de_prompt,
             ao_ajustar_contexto=self.ao_ajustar_contexto,
         )
+
+    def nova_conversa(self) -> Conversa | None:
+        """Uma conversa vazia, ou `None` com a memória desligada.
+
+        Não é `cached_property`: cada laço de conversa tem a sua, e `/nova`
+        troca por outra. Usa o gerador de apoio — determinístico, sem
+        streaming, e limitado pela carga como as outras chamadas internas.
+        """
+        if not self.config.conversa.ligada:
+            return None
+        return Conversa(self.gerador_de_apoio, self.config.conversa)
 
     @cached_property
     def dialogo(self) -> Dialogo:

@@ -331,9 +331,10 @@ class Dialogo:
         self,
         sessao: Sessao,
         k: int | None = None,
+        historico: str = "",
     ) -> tuple[list[TrechoRecuperado], Iterator[str]]:
         """Fecha o ciclo com a consulta consolidada, não com a pergunta crua."""
-        trechos, fluxo = self._motor.responder_em_fluxo(sessao.consulta_consolidada(), k=k)
+        trechos, fluxo = self._motor.responder_em_fluxo(sessao.consulta_consolidada(), k=k, historico=historico)
         sessao.estado = EstadoDaSessao.RESPOSTA if trechos else EstadoDaSessao.ENCERRADA
         return trechos, fluxo
 

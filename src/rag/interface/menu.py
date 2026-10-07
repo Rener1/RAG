@@ -80,15 +80,14 @@ def _laco_de_consulta(servico: Servico, modo: str) -> None:
     if modo == "dialogar":
         console.detalhe("O sistema pode devolver perguntas antes de buscar; Enter em branco pula essa etapa.")
 
-    while True:
-        pergunta = console.perguntar("\npergunta")
-        if not pergunta:
-            return
-        executar(servico, pergunta)
+    acoes.acao_conversar(servico, executar)
 
 
 def _avaliar(servico: Servico) -> None:
     """Avaliação pelo menu, com a comparação como oferta explícita."""
+    if console.confirmar("Medir a memória de conversa (gabarito de seguimentos)?", padrao=False):
+        acoes.acao_avaliar_conversa(servico)
+        return
     comparar = console.confirmar("Comparar com e sem mediação? (roda o gabarito duas vezes)", padrao=True)
     acoes.acao_avaliar(servico, comparar_configuracoes=comparar)
 

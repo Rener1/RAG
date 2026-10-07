@@ -28,7 +28,7 @@ class MotorRag:
         self,
         recuperador: RecuperadorDeTrechos,
         gerador: Gerador,
-        montador_de_prompt: Callable[[str, list[TrechoRecuperado]], str] = montar_prompt,
+        montador_de_prompt: Callable[..., str] = montar_prompt,
         orcamento_em_tokens: int = 0,
         ao_ajustar_contexto: Callable[[int, int], None] = lambda recuperados, usados: None,
     ) -> None:
@@ -38,7 +38,19 @@ class MotorRag:
         self._orcamento = orcamento_em_tokens
         self._ao_ajustar_contexto = ao_ajustar_contexto
 
-    def trechos_que_cabem(self, pergunta: str, trechos: list[TrechoRecuperado]) -> list[TrechoRecuperado]:
+    def _montar(self, pergunta: str, trechos: list[TrechoRecuperado], historico: str = "") -> str:
+        """O histórico só é passado quando existe.
+
+        Montador sem conversa continua valendo com a assinatura de dois
+        argumentos — é o que mantém substituível o montador injetado.
+        """
+        if historico:
+            return self._montar_prompt(pergunta, trechos, historico=historico)
+        return self._montar_prompt(pergunta, trechos)
+
+    def trechos_que_cabem(
+        self, pergunta: str, trechos: list[TrechoRecuperado], historico: str = ""
+    ) -> list[TrechoRecuperado]:
         """Os trechos que chegariam ao modelo, sem avisar ninguém do corte.
 
         Público para a avaliação medir o que de fato vai ao prompt: `recall@k`
@@ -46,10 +58,14 @@ class MotorRag:
         """
         if self._orcamento <= 0:
             return trechos
-        overhead = estimar_tokens(self._montar_prompt(pergunta, []))
+        # O histórico da conversa entra aqui, no overhead: cada caractere dele
+        # sai do espaço dos trechos, e é assim que tem de ser — à vista.
+        overhead = estimar_tokens(self._montar(pergunta, [], historico))
         return caber_no_orcamento(trechos, self._orcamento, overhead)
 
-    def _ajustar_ao_orcamento(self, pergunta: str, trechos: list[TrechoRecuperado]) -> list[TrechoRecuperado]:
+    def _ajustar_ao_orcamento(
+        self, pergunta: str, trechos: list[TrechoRecuperado], historico: str = ""
+    ) -> list[TrechoRecuperado]:
         """Descarta os trechos que não cabem na janela do modelo.
 
         O overhead — marco, pergunta, andaime do prompt — é medido chamando o
@@ -61,7 +77,7 @@ class MotorRag:
         a mesma que foi ao modelo: exibir doze fontes e mandar sete ao prompt
         faria `validar_citacoes` aprovar uma fonte que o modelo nunca viu.
         """
-        cabem = self.trechos_que_cabem(pergunta, trechos)
+        cabem = self.trechos_que_cabem(pergunta, trechos, historico)
         if len(cabem) < len(trechos):
             self._ao_ajustar_contexto(len(trechos), len(cabem))
         return cabem
@@ -73,18 +89,23 @@ class MotorRag:
         self,
         pergunta: str,
         k: int | None = None,
+        historico: str = "",
     ) -> tuple[list[TrechoRecuperado], Iterator[str]]:
         """Devolve os trechos na hora e a resposta como fluxo de pedaços.
 
         Separado assim para a interface poder mostrar as fontes recuperadas
         antes de o modelo começar a escrever — quem pergunta vê em cima de que
         material a resposta está sendo construída, em vez de esperar em branco.
+
+        `historico` é a conversa anterior (`Conversa.historico_para_o_prompt`).
+        Não participa da busca: quem resolve a referência para a busca é a
+        reescrita, antes de a pergunta chegar aqui.
         """
         trechos = self.recuperar(pergunta, k=k)
         if not trechos:
             return [], iter(())
-        trechos = self._ajustar_ao_orcamento(pergunta, trechos)
-        return trechos, self._gerador.gerar(self._montar_prompt(pergunta, trechos))
+        trechos = self._ajustar_ao_orcamento(pergunta, trechos, historico)
+        return trechos, self._gerador.gerar(self._montar(pergunta, trechos, historico))
 
     def responder(self, pergunta: str, k: int | None = None) -> Resposta:
         """Versão de uma tacada só — usada por script e teste, não pela interface."""

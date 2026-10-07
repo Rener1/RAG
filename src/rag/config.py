@@ -70,6 +70,11 @@ class ConfigCaminhos:
         """Gabarito da avaliação. Fora de `data/` pelo mesmo motivo dos marcos."""
         return RAIZ_PROJETO / "avaliacao" / "casos.jsonl"
 
+    @property
+    def casos_de_conversa(self) -> Path:
+        """Gabarito de seguimentos — separado, para não mudar a série dos 40 casos."""
+        return RAIZ_PROJETO / "avaliacao" / "casos_conversa.jsonl"
+
 
 @dataclass
 class ConfigDownload:
@@ -275,6 +280,29 @@ class ConfigSessao:
 
 
 @dataclass
+class ConfigConversa:
+    """Memória entre perguntas, no modo conversa (CLI sem pergunta, e o menu).
+
+    Duas coisas diferentes. Antes da busca, um seguimento como "e os Khajiit?"
+    é reescrito como pergunta que se sustenta sozinha — uma chamada ao modelo,
+    só quando há histórico. Na geração, as últimas trocas entram no prompt para
+    o modelo entender referências à própria resposta ("explique o ponto 2").
+
+    O histórico vive só na memória do processo e some ao sair. Nada é gravado
+    em disco: guardar sessões é decisão de retenção de dado pessoal, à parte.
+    Pergunta avulsa (`main.py perguntar "..."`) nunca tem memória.
+    """
+
+    ligada: bool = True
+    turnos_lembrados: int = 3  # trocas que a reescrita enxerga
+    # O histórico disputa a janela com os trechos recuperados: entra no
+    # overhead do orçamento de contexto, então cada caractere aqui sai dos
+    # trechos. Por isso o teto é baixo, e a resposta anterior vai truncada.
+    turnos_no_prompt: int = 2
+    caracteres_por_resposta: int = 600
+
+
+@dataclass
 class ConfigCarga:
     """Limitador de carga — quanto do tempo o pipeline mantém o hardware ocupado.
 
@@ -326,6 +354,7 @@ class Config:
     reordenacao: ConfigReordenacao = field(default_factory=ConfigReordenacao)
     intermediacao: ConfigIntermediacao = field(default_factory=ConfigIntermediacao)
     sessao: ConfigSessao = field(default_factory=ConfigSessao)
+    conversa: ConfigConversa = field(default_factory=ConfigConversa)
     carga: ConfigCarga = field(default_factory=ConfigCarga)
     marco: ConfigMarco = field(default_factory=ConfigMarco)
 

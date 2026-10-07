@@ -112,13 +112,28 @@ def formatar_trechos(trechos: list[TrechoRecuperado]) -> str:
     )
 
 
-def montar_prompt(pergunta: str, trechos: list[TrechoRecuperado]) -> str:
+def formatar_conversa_anterior(historico: str) -> str:
+    """Bloco da conversa anterior, ou vazio quando não há.
+
+    Vem rotulado como contexto, não como fonte: o modelo precisa dele para
+    entender "o ponto 2", mas citar a própria resposta anterior como se fosse o
+    acervo seria fonte inventada com cara de verdadeira.
+    """
+    if not historico.strip():
+        return ""
+    return f"""CONVERSA ANTERIOR (só para entender a pergunta; não é fonte e não deve ser citada):
+{historico}
+
+"""
+
+
+def montar_prompt(pergunta: str, trechos: list[TrechoRecuperado], historico: str = "") -> str:
     """Prompt genérico, usado só quando nenhum marco está ativo."""
     return f"""Você responde SOMENTE com base nos trechos abaixo, que estão em inglês. \
 Responda em português. Cite a fonte (o nome entre colchetes) de cada afirmação. \
 Se os trechos não tiverem a resposta, diga isso claramente em vez de inventar.
 
-TRECHOS RECUPERADOS:
+{formatar_conversa_anterior(historico)}TRECHOS RECUPERADOS:
 {formatar_trechos(trechos)}
 
 PERGUNTA:
@@ -126,7 +141,9 @@ PERGUNTA:
 """
 
 
-def montar_prompt_com_marco(marco: MarcoPedagogico, pergunta: str, trechos: list[TrechoRecuperado]) -> str:
+def montar_prompt_com_marco(
+    marco: MarcoPedagogico, pergunta: str, trechos: list[TrechoRecuperado], historico: str = ""
+) -> str:
     """Prompt guiado pelo marco.
 
     A ordem e a escolha das seções são decisão do marco (`secoes_de_resposta`),
@@ -140,7 +157,7 @@ def montar_prompt_com_marco(marco: MarcoPedagogico, pergunta: str, trechos: list
 
     return f"""{orientacao}
 
-TRECHOS RECUPERADOS:
+{formatar_conversa_anterior(historico)}TRECHOS RECUPERADOS:
 {formatar_trechos(trechos)}
 
 PERGUNTA:
@@ -155,8 +172,8 @@ def montador_do_marco(marco: MarcoPedagogico) -> Callable[[str, list[TrechoRecup
     linha — o encaixe já estava previsto no construtor dele.
     """
 
-    def montar(pergunta: str, trechos: list[TrechoRecuperado]) -> str:
-        return montar_prompt_com_marco(marco, pergunta, trechos)
+    def montar(pergunta: str, trechos: list[TrechoRecuperado], historico: str = "") -> str:
+        return montar_prompt_com_marco(marco, pergunta, trechos, historico)
 
     return montar
 

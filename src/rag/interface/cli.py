@@ -38,10 +38,11 @@ exemplos:
   python3 main.py buscar "..." --sem-intermediar    busca sem reformular a pergunta
   python3 main.py buscar "..." --k-dinamico 0.9    quantidade de trechos conforme a pergunta
   python3 main.py perguntar "o que foi a crise de oblivion?" --k 8
-  python3 main.py perguntar                modo conversa, uma pergunta por linha
+  python3 main.py perguntar                modo conversa, uma pergunta por linha, com memória
   python3 main.py perguntar "..." --direto  responde sem problematizar
   python3 main.py config --salvar          persiste a configuração atual em config.toml
   python3 main.py avaliar --comparar               mede a recuperação com e sem mediação
+  python3 main.py avaliar --conversa               mede a memória de conversa nos seguimentos
   python3 main.py marcos                   lista os marcos pedagógicos
   python3 main.py --marco freiriano perguntar "..."
 """
@@ -150,6 +151,11 @@ def construir_parser() -> argparse.ArgumentParser:
         p.add_argument("--sem-reordenar", action="store_true", help="desliga a reordenação")
         p.add_argument("--hibrido", action="store_true", help="funde a busca densa com BM25 léxico")
         p.add_argument("--sem-hibrido", action="store_true", help="desliga a fusão léxica")
+        p.add_argument(
+            "--sem-memoria",
+            action="store_true",
+            help="no modo conversa, cada pergunta chega sozinha, sem o contexto das anteriores",
+        )
         if nome == "perguntar":
             p.add_argument("--dialogo", action="store_true", help="força a problematização antes de responder")
             p.add_argument("--direto", action="store_true", help="responde de uma vez, sem problematizar")
@@ -166,6 +172,11 @@ def construir_parser() -> argparse.ArgumentParser:
         help="mede a política de quantidade dinâmica em vez do k fixo",
     )
     p_avaliar.add_argument("--comparar", action="store_true", help="roda com e sem mediação e compara lado a lado")
+    p_avaliar.add_argument(
+        "--conversa",
+        action="store_true",
+        help="mede a memória de conversa: seguimento cru contra reescrito (avaliacao/casos_conversa.jsonl)",
+    )
     p_avaliar.add_argument("--casos", help="outro gabarito (padrão: avaliacao/casos.jsonl)")
     p_avaliar.add_argument("--sem-intermediar", action="store_true", help="mede só a busca direta, sem mediação")
     p_avaliar.add_argument("--reordenar", action="store_true", help="mede com reordenação por cross-encoder")
@@ -238,6 +249,8 @@ def _aplicar_opcoes_globais(argumentos: argparse.Namespace, config: Config) -> N
         config.busca.hibrido = True
     if getattr(argumentos, "sem_hibrido", False):
         config.busca.hibrido = False
+    if getattr(argumentos, "sem_memoria", False):
+        config.conversa.ligada = False
     if argumentos.sem_cor:
         console.desligar_cores()
 
@@ -279,13 +292,7 @@ def _consultar(servico: Servico, argumentos: argparse.Namespace, modo: str) -> b
     console.habilitar_historico()
     console.titulo("Modo conversa" + (" — busca" if modo == "buscar" else ""))
     console.detalhe("Uma pergunta por linha. Linha vazia encerra.")
-    while True:
-        pergunta = console.perguntar("\npergunta")
-        if not pergunta:
-            # Sair da conversa é uso normal, não falha — o modo conversa
-            # sempre termina em sucesso.
-            return True
-        executar_uma(servico, pergunta, k=argumentos.k)
+    return acoes.acao_conversar(servico, executar_uma, k=argumentos.k)
 
 
 def principal(argv: list[str] | None = None) -> int:
@@ -335,6 +342,16 @@ def principal(argv: list[str] | None = None) -> int:
             return 0 if sucesso else 1
         if comando in {"buscar", "perguntar"}:
             return 0 if _consultar(servico, argumentos, comando) else 1
+        if comando == "avaliar" and argumentos.conversa:
+            return (
+                0
+                if acoes.acao_avaliar_conversa(
+                    servico,
+                    k=argumentos.k,
+                    caminho_dos_casos=Path(argumentos.casos) if argumentos.casos else None,
+                )
+                else 1
+            )
         if comando == "avaliar":
             return (
                 0
