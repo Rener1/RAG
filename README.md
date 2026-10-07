@@ -2,8 +2,12 @@
 
 Pipeline RAG que roda inteiramente na máquina local: download de corpus →
 chunking → embedding/indexação → recuperação → geração. Protótipo da **Fase 2**
-do projeto IA Freiriana (Instituto Paulo Freire). O plano completo por fases
-está em [docs/](docs/).
+do projeto IA Freiriana (Instituto Paulo Freire).
+
+**Documentação:** o [índice dos documentos](docs/README.md) diz por onde começar.
+Os principais são a [arquitetura](docs/arquitetura.md), o
+[estado do desenvolvimento](docs/estado-do-desenvolvimento.md) e o
+[plano por fases](docs/00-plano-geral-implementacao.md).
 
 O corpus atual (lore de Elder Scrolls, da UESP) é **descartável** — serve para
 exercitar o pipeline com volume real enquanto o acervo do Centro de Referência
@@ -86,7 +90,7 @@ python3 main.py
 ```
 
 ```
-corpus: 8896 arquivos · chunks: sim · coleção 'uesp_lore': 69285 pontos
+corpus: 8896 arquivos · chunks: sim · coleção 'uesp_lore_agrupado_2000': 26808 pontos
 marco: generico
 
   1  Verificar ambiente   diagnóstico de serviços e artefatos
@@ -112,7 +116,7 @@ caras (1 e 4) confirmam antes de começar e mostram progresso.
 python3 main.py ambiente                      # diagnóstico
 python3 main.py baixar                        # etapa 1 — demorado
 python3 main.py chunking                      # etapa 2
-python3 main.py chunking --estrategia paragrafo_agrupado
+python3 main.py chunking --estrategia paragrafo --saida data/x.jsonl   # corte antigo, um chunk por parágrafo
 python3 main.py indexar                       # etapa 3 — retoma de onde parou
 python3 main.py indexar --recriar             # apaga a coleção e refaz
 python3 main.py chunking --saida data/experimento.jsonl   # preserva o chunks.jsonl indexado
@@ -155,6 +159,9 @@ resposta.
 
 ## Estrutura
 
+Visão resumida. A explicação completa, com o fluxo de uma pergunta e os contratos, está em
+[docs/arquitetura.md](docs/arquitetura.md).
+
 ```
 main.py                  ponto de entrada único (menu + CLI)
 config.exemplo.toml      modelo do config.toml desta máquina
@@ -172,6 +179,7 @@ src/rag/
   avaliacao.py           mede recall@k contra o gabarito
   acelerador.py          detecta a GPU e diz qual torch instalar
   lexico.py              busca léxica BM25, opcional
+  carga.py               limitador de carga do hardware (--carga)
   servico.py             composição das dependências
   ambiente.py            diagnóstico
   clientes/              adaptadores: Ollama, Qdrant, UESP, sessão HTTP

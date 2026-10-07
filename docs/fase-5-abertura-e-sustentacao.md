@@ -1,5 +1,7 @@
 # Fase 5 — Abertura e sustentação
 
+> [Índice dos documentos](README.md) · ← [Fase 4](fase-4-especializacao.md)
+
 **Duração:** contínua. Vira rotina, não projeto.
 **Custo:** operação corrente (custo marginal de uso é zero na Rota B)
 **Natureza:** institucional e de manutenção.

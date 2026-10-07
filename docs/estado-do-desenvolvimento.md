@@ -1,8 +1,11 @@
 # Estado do desenvolvimento
 
-**Última atualização:** 2026-10-05 · 313 testes · commit anterior `ca0fae2`
-**Padrões em vigor:** `busca.limiar_relativo = 0,90` (quantidade dinâmica) · `busca.k = 8` (reserva) ·
-`busca.reordenar = false` · `intermediacao.decompor = true` ·
+> [Índice dos documentos](README.md) · [Arquitetura](arquitetura.md) · [Fase 2 — Protótipo](fase-2-prototipo.md) · [README do repositório](../README.md)
+
+**Última atualização:** 2026-10-07 · 313 testes · commit anterior `837654a`
+**Padrões em vigor:** `chunking.estrategia = paragrafo_agrupado` (teto 2000) ·
+`vetorial.colecao = uesp_lore_agrupado_2000` · `busca.reordenar = true` (com ela vale `busca.k = 8`;
+`limiar_relativo = 0,90` só atua com `--sem-reordenar`) · `intermediacao.decompor = true` ·
 `geracao.num_ctx = 8192` · `marco.ativo = generico`
 
 ## Como usar este documento
@@ -49,7 +52,7 @@ existe capacidade alcançável só por uma delas.
 
 | Item | Estado | Destravado por |
 |---|---|---|
-| `marcos/freiriano.md` | **Esqueleto, `versao: 0`.** Só as perguntas que cada seção precisa responder | Redação do comitê pedagógico. `docs/fase-2-prototipo.md` §4.6 é explícito em que não cabe a programadores |
+| `marcos/freiriano.md` | **Esqueleto, `versao: 0`.** Só as perguntas que cada seção precisa responder | Redação do comitê pedagógico. [fase-2-prototipo.md](fase-2-prototipo.md) §4.6 é explícito em que não cabe a programadores |
 | `marcos/generico.md` | Ativo por padrão, **sem valor pedagógico** — existe para exercitar o mecanismo | O marco freiriano ficar pronto |
 | Corpus UESP | Descartável, 8896 páginas de lore | Catalogação do acervo do IPF (Fase 1) |
 | `avaliacao/casos.jsonl` | 40 casos escritos pela equipe técnica sobre o corpus descartável | Os 80–150 casos reais do comitê (`fase-3` §4), que vêm do registro de uso do piloto |
@@ -224,11 +227,12 @@ números acima **subestimam** um pouco o sistema final.
 | Medida | Valor | Verificação |
 |---|---|---|
 | Páginas | 8896 arquivos, 8817 títulos distintos | `python3 main.py ambiente` |
-| Chunks | 69285 · sha256 `a991de28…` | `sha256sum data/chunks.jsonl` |
-| Tamanho de chunk | mediana 348 · p90 1466 · p99 1999 · máx 2000 chars | passagem sobre o JSONL |
+| Chunks (padrão desde 2026-10-07) | 26808 · sha256 `47ed4084…` · `paragrafo_agrupado`, teto 2000 | `sha256sum data/chunks.jsonl` |
+| Tamanho de chunk | mediana 1637 · p10 477 · p90 1996 · máx 2000 chars | passagem sobre o JSONL |
+| Chunks anteriores (`paragrafo`) | 69285 · sha256 `a991de28…` · mediana 348 · em `data/chunks_paragrafo.jsonl`, coleção `uesp_lore` | mantidos para comparação |
 | Truncamento no embedding | **descartado como risco** | bge-m3 via Ollama só ignora cauda acima de ~8k chars; zero chunks passam disso |
 
-O truncamento silencioso estava marcado como risco em `fase-2-prototipo.md` §7.
+O truncamento silencioso estava marcado como risco em [fase-2-prototipo.md](fase-2-prototipo.md) §7.
 Está fechado para o corpus atual — mas a verificação é do par modelo+corpus, e
 precisa ser refeita ao trocar qualquer um dos dois.
 
@@ -250,7 +254,7 @@ python3 main.py --chunks chunks_agrupado_2000.jsonl --colecao uesp_lore_agrupado
 
 | Coleção | chunks | mediana | busca direta (k=8) | mediação + reordenação | dinâmico α=0,90 |
 |---|---|---|---|---|---|
-| `uesp_lore` (`paragrafo`, atual) | 69285 | 348 ch · ~85 tok | 85% / 72% / 0,604 | 88% / 78% / 0,647 | 88% / 74% · 10,3 trechos · 0 cortes |
+| `uesp_lore` (`paragrafo`, anterior) | 69285 | 348 ch · ~85 tok | 85% / 72% / 0,604 | 88% / 78% / 0,647 | 88% / 74% · 10,3 trechos · 0 cortes |
 | `uesp_lore_agrupado_1000` | 51522 | 832 ch · ~200 tok | 82% / 67% / 0,620 | 90% / 76% / 0,711 | 90% / 79% · 12,3 trechos · 0 cortes |
 | **`uesp_lore_agrupado_2000`** | **26808** | **1637 ch · ~400 tok** | **90% / 79% / 0,751** | **95% / 81% / 0,742** | 92% / 80% · 9,0 trechos · **4 cortes** |
 
@@ -268,17 +272,20 @@ Leituras:
   pergunta ampla por não dizerem nada.
 - **1000 não é meio-termo**: perde na busca direta e só ganha com mediação.
 - **Com 2000, o `k` dinâmico começa a estourar a janela**: 4 de 40 casos cortados,
-  recall no prompt 90% em vez de 92%. Em `k = 8` fixo, zero cortes. Recorte maior
-  pede `k_maximo` menor, ou `num_ctx` maior — a decisão entra junto com a promoção.
+  recall no prompt 90% em vez de 92%. Em `k = 8` fixo, zero cortes. Como o caminho
+  padrão é reordenação com `k = 8`, os cortes só aparecem com `--sem-reordenar`;
+  quem voltar à quantidade dinâmica precisa de `k_maximo` menor ou `num_ctx` maior.
 
 **Por que 2000 e não 512 tokens (~2600 caracteres):** o reordenador trunca cada par
 pergunta+trecho em `reordenacao.tamanho_maximo = 512` tokens. Acima de ~2000
 caracteres a cauda do recorte sumiria do julgamento dele sem aviso. Subir o teto
 exige subir aquele campo junto (o bge-reranker-v2-m3 aceita mais, a custo de tempo).
 
-**Não promovido a padrão.** Trocar exige regenerar `data/chunks.jsonl` (o sha256
-`a991de28…` muda) e apontar a coleção padrão para a nova. É decisão de calendário —
-ver "Decisões pendentes".
+**Promovido a padrão em 2026-10-07, sem reindexar.** A coleção padrão passou a ser
+`uesp_lore_agrupado_2000`, já indexada. `data/chunks.jsonl` agora é o arquivo
+agrupado (sha256 `47ed4084…`, conferido byte a byte contra `main.py chunking` com
+os padrões novos), e o anterior ficou em `data/chunks_paragrafo.jsonl`. Para
+comparar com o corte antigo: `--colecao uesp_lore --chunks chunks_paragrafo.jsonl`.
 
 ### Limitador de carga — poupar o hardware de dentro do app (2026-10-05)
 
@@ -430,17 +437,21 @@ ganhou (ver "Tamanho do recorte").
 
 | # | Item | Destravado por | Invalida o índice? |
 |---|---|---|---|
-| 1 | **Promover `paragrafo_agrupado` / 2000** a padrão, com `k_maximo` ou `num_ctx` reajustado (4/40 cortes no dinâmico) | Decisão — medido e indexado em `uesp_lore_agrupado_2000` | **sim** — já indexado; a troca é de configuração |
-| 2 | Entender os picos de 200–250 W na indexação longa com `--carga 0.75` | Indexar com monitor de sysfs e duração de cada lote | não |
-| 3 | Preencher página e offset nos campos de proveniência do `Chunk` | Troca para o acervo do IPF, que já obriga a reindexar | sim, junto da troca |
-| 4 | **MMR** — diversificação contínua, em vez de teto rígido | `buscar(..., com_vetores=True)` no protocolo | não |
-| 5 | Ligar o **BM25 híbrido** por padrão | Decidir se +2 de recall paga +37% de tempo | não |
-| 6 | **Contextual retrieval** — prefixo de contexto por chunk gerado por LLM | Uma chamada de modelo por chunk (69285) | sim; janela da troca de corpus |
-| 7 | Avaliação camada 2 — rubrica e casos reais | Comitê pedagógico + registro de uso do piloto | não |
-| 8 | Conferir `chunking.tamanho_maximo` contra corpus novo | Troca de corpus | — |
+| 1 | Entender os picos de 200–250 W na indexação longa com `--carga 0.75` | Indexar com monitor de sysfs e duração de cada lote | não |
+| 2 | Preencher página e offset nos campos de proveniência do `Chunk` | Troca para o acervo do IPF, que já obriga a reindexar | sim, junto da troca |
+| 3 | **MMR** — diversificação contínua, em vez de teto rígido | `buscar(..., com_vetores=True)` no protocolo | não |
+| 4 | Ligar o **BM25 híbrido** por padrão | Decidir se +2 de recall paga +37% de tempo | não |
+| 5 | **Contextual retrieval** — prefixo de contexto por chunk gerado por LLM | Uma chamada de modelo por chunk (26808) | sim; janela da troca de corpus |
+| 6 | Avaliação camada 2 — rubrica e casos reais | Comitê pedagógico + registro de uso do piloto | não |
+| 7 | Conferir `chunking.tamanho_maximo` contra corpus novo | Troca de corpus | — |
+| 8 | **Metadados do acervo** — etapa de derivação a partir da exportação DSpace, filtro de `restricao_uso` dentro da query, `pagina` e `uri` na citação, `versao_embedding` preenchida, triagem automática de dados pessoais | Aprovação do esquema v0.2 e as decisões de direção de §11 dele | payload sim, vetor não |
 
 Os caminhos A1–A6 estão detalhados em
-[recorte-de-conteudo-caminhos.md](recorte-de-conteudo-caminhos.md).
+[recorte-de-conteudo-caminhos.md](recorte-de-conteudo-caminhos.md). O item 8 está detalhado em
+[esquema-de-metadados.md](esquema-de-metadados.md) §8.4 — são as dez mudanças de código que o
+esquema de metadados do acervo exige, nenhuma delas implementada. O acervo é um repositório DSpace
+cujos metadados não serão alterados nem preenchidos; o que isso impede está em
+[limites-dos-metadados-do-acervo.md](limites-dos-metadados-do-acervo.md).
 
 **Regra que organiza a coluna da direita:** toda mudança que invalida o índice
 espera pela próxima reindexação obrigatória, e todas entram juntas. Reindexar
@@ -451,11 +462,7 @@ experimentos em coleção separada, mas não para a coleção padrão.
 
 ## Decisões pendentes
 
-1. **Promover o recorte agrupado de 2000 a padrão?** Mediu melhor em todas as
-   configurações. A troca é `chunking.estrategia`, `chunking.tamanho_maximo`,
-   `vetorial.colecao` (ou regenerar `chunks.jsonl` e reindexar `uesp_lore`), e
-   decidir o que fazer com os 4 cortes do `k` dinâmico.
-2. **Ligar o BM25 híbrido por padrão?** Ganha com idioma casado, perde sem. Como
+1. **Ligar o BM25 híbrido por padrão?** Ganha com idioma casado, perde sem. Como
    a mediação hoje traduz, o cenário é o favorável — mas medi antes do conserto
    da quantidade e o número precisa ser refeito.
 
@@ -467,7 +474,7 @@ experimentos em coleção separada, mas não para a coleção padrão.
 python3 -m unittest discover -s tests -t tests   # 313 testes, sem rede nem serviço
 ruff check src/ tests/ main.py                   # lint
 python3 main.py ambiente                         # serviços, modelos e artefatos
-sha256sum data/chunks.jsonl                      # a991de28…  (69285 chunks)
+sha256sum data/chunks.jsonl                      # 47ed4084…  (26808 chunks)
 ```
 
 1. **Nenhum módulo de `etapas/` importa outro de `etapas/`.**

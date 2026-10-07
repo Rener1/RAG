@@ -1,5 +1,7 @@
 # Fase 2 — Protótipo funcional
 
+> [Índice dos documentos](README.md) · ← [Fase 1](fase-1-corpus.md) · [Fase 3](fase-3-avaliacao-e-servidor.md) → · [Estado do desenvolvimento](estado-do-desenvolvimento.md)
+
 **Duração estimada:** 6–10 semanas (em paralelo com a Fase 1)
 **Custo:** R$ 800–3.000/mês de GPU alugada
 **Natureza:** técnica e exploratória. É a fase de aprender, não de consolidar.

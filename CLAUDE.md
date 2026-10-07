@@ -11,6 +11,10 @@ completo — download de corpus → chunking → embedding/indexação → recup
 provisório, o que falta e as medições em vigor. É o primeiro doc a ler, e o que atualizar quando
 alguma dessas coisas mudar.
 
+**Mapa dos documentos:** `docs/README.md` (índice, com links entre todos) e `docs/arquitetura.md`
+(como o código se organiza, para pessoas). Ao criar um documento em `docs/`, acrescente-o ao índice
+e abra-o com a linha de navegação `> [Índice dos documentos](README.md) · ...`, como os demais.
+
 O plano por fases está em `docs/`. Leia sob demanda, não preventivamente:
 `@docs/00-plano-geral-implementacao.md`
 
@@ -108,7 +112,7 @@ Cada etapa consome a saída da anterior:
 ```
 download    → data/corpus_uesp/*.txt   (~9k páginas, demorado)
 chunking    → data/chunks.jsonl
-indexacao   → coleção uesp_lore no Qdrant   (~17 min na GPU; ~35 com --carga 0.75)
+indexacao   → coleção uesp_lore_agrupado_2000 no Qdrant   (~17 min na GPU; ~35 com --carga 0.75)
 recuperacao → trechos
 geracao     → resposta
 ```
@@ -249,11 +253,13 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 - **`main.py chunking` sobrescreve `data/chunks.jsonl`**, que é o arquivo correspondente aos
   pontos indexados. Para experimentar estratégia, use `--saida OUTRO.jsonl` e indexe contra
   `--colecao OUTRA`.
-- **Mudar a estratégia de chunking invalida o índice inteiro.** A saída de `chunking` com a
-  estratégia padrão (`paragrafo`) é byte a byte igual à do protótipo original — 69285 chunks,
-  sha256 `a991de28...`. `paragrafo_agrupado` existe e é melhor (não descarta parágrafo curto),
-  mas trocar exige reindexar tudo. Não troque de passagem — o agrupado de 2000 já está
-  medido (melhor) e indexado em `uesp_lore_agrupado_2000`, esperando decisão de promoção. **Regra que sai
+- **Mudar a estratégia de chunking invalida o índice inteiro.** A padrão é `paragrafo_agrupado`
+  com teto 2000 desde 2026-10-07 (medida melhor: recall 90% contra 85%, MRR 0,75 contra 0,60), e
+  `main.py chunking` com ela reproduz byte a byte o `data/chunks.jsonl` indexado — 26808 chunks,
+  sha256 `47ed4084...`, coleção `uesp_lore_agrupado_2000`. O corte anterior (`paragrafo`, 69285
+  chunks, `a991de28...`) continua em `data/chunks_paragrafo.jsonl` e na coleção `uesp_lore`.
+  **Não suba `chunking.tamanho_maximo` sem subir `reordenacao.tamanho_maximo`**: o reordenador lê
+  512 tokens por par, e acima de ~2000 caracteres a cauda some do julgamento. **Regra que sai
   disso: toda mudança que invalida o índice espera pela próxima reindexação obrigatória, e todas
   entram juntas** — os caminhos e a ordem estão em `docs/recorte-de-conteudo-caminhos.md`.
 - **`DIMENSAO_VETOR` tem que bater com a saída do modelo de embedding.** Isso agora é

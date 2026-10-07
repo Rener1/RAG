@@ -1,14 +1,21 @@
 # Recorte de conteúdo — caminhos possíveis
 
+> [Índice dos documentos](README.md) · [Estado do desenvolvimento](estado-do-desenvolvimento.md) · [Arquitetura](arquitetura.md) · [Esquema de metadados](esquema-de-metadados.md)
+
 **Status:** documento de decisão técnica, não do plano por fases. Complementa
-`fase-1-corpus.md` §4.6–4.8 e `fase-2-prototipo.md` §4.5 com o que é
+[fase-1-corpus.md](fase-1-corpus.md) §4.6–4.8 e [fase-2-prototipo.md](fase-2-prototipo.md) §4.5 com o que é
 implementável neste repositório, quanto custa cada caminho, e em que ordem.
 
 ---
 
 ## O problema
 
-O corte hoje é por parágrafo (`ESTRATEGIAS["paragrafo"]` em
+> **Atualização 2026-10-07:** o padrão passou a ser `paragrafo_agrupado` com teto de
+> 2000 caracteres, que resolve o item 3 abaixo (parágrafo curto deixa de ser descartado)
+> e mediu melhor — ver [estado-do-desenvolvimento.md](estado-do-desenvolvimento.md). O texto abaixo descreve o corte
+> anterior, e os itens 1 e 2 continuam valendo.
+
+O corte era por parágrafo (`ESTRATEGIAS["paragrafo"]` em
 `src/rag/etapas/chunking.py`): um chunk por bloco separado por linha em branco,
 parágrafo abaixo de 60 caracteres descartado, acima de 2000 subdividido. É
 insensível ao contexto em três sentidos:
@@ -86,9 +93,9 @@ idêntico e o índice continua válido.
 ### A5 — proveniência por chunk *(implementado)*
 
 Os campos existem, com valor neutro, e só são gravados quando preenchidos. É o
-pré-requisito de `fase-1-corpus.md` §4.7 — "a decisão de ingestão que mais dói se
+pré-requisito de [fase-1-corpus.md](fase-1-corpus.md) §4.7 — "a decisão de ingestão que mais dói se
 for esquecida, porque exige reprocessar tudo" — e do filtro de restrição de uso
-aplicado dentro da query (`fase-2-prototipo.md` §4.4). Quem os preenche é a
+aplicado dentro da query ([fase-2-prototipo.md](fase-2-prototipo.md) §4.4). Quem os preenche é a
 estratégia de corte sensível à estrutura, quando ela entrar.
 
 ### A1 — corte por seção *(recomendado como próximo)*
@@ -154,7 +161,7 @@ runtime — por isso não é o primeiro passo, apesar de não tocar no índice.
 ## Um item fora da lista
 
 `ConfigChunking.tamanho_maximo` é 2000 caracteres e precisa ser conferido contra
-a janela de entrada do bge-m3. `fase-2-prototipo.md` §7 marca o truncamento
+a janela de entrada do bge-m3. [fase-2-prototipo.md](fase-2-prototipo.md) §7 marca o truncamento
 silencioso como risco da fase: pedaço maior que a janela é cortado sem erro
 nenhum, e a cauda desaparece da busca. A verificação é barata — embutir um chunk
 longo, embutir só a cauda dele, e comparar.

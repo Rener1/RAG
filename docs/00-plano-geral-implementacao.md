@@ -1,5 +1,7 @@
 # IA Freiriana — Plano Geral de Implementação
 
+> [Índice dos documentos](README.md) · [Fase 0](fase-0-desenho-e-contratos.md) →
+
 > **Documentos de origem**
 > - *IPF — Projeto desenvolvimento IA Freiriana* (Instituto Paulo Freire, 13/08/2026) — decisões pedagógicas, de governança e de captação.
 > - *IA Freiriana — Plano Técnico* — recorte de engenharia (arquitetura, stack, pipelines).
@@ -44,12 +46,12 @@ Qualquer decisão em qualquer fase é testada contra estes cinco. Se conflitar, 
 
 | Fase | Nome | Pergunta que responde | Entregável âncora | Arquivo |
 |---|---|---|---|---|
-| 0 | Desenho e contratos | Quem decide o quê, e sob que regras? | Termo de parceria + escopo + lista negativa como especificação | `fase-0-desenho-e-contratos.md` |
-| 1 | Constituição do corpus | O que o sistema pode consultar, e com que garantias? | Acervo digital organizado e pesquisável | `fase-1-corpus.md` |
-| 2 | Protótipo funcional | Isso funciona? Com qual modelo? | Sistema usável internamente + relatório crítico de uso | `fase-2-prototipo.md` |
-| 3 | Avaliação e servidor próprio | Como sabemos se melhorou ou piorou? | Sistema na sede com sigilo integral + protocolo de avaliação | `fase-3-avaliacao-e-servidor.md` |
-| 4 | Especialização (condicional) | O marco pedagógico esgotou seus limites? | Modelo especializado + artigo | `fase-4-especializacao.md` |
-| 5 | Abertura e sustentação | Como isso sobrevive e se replica? | Metodologia publicada + rotina de manutenção | `fase-5-abertura-e-sustentacao.md` |
+| 0 | Desenho e contratos | Quem decide o quê, e sob que regras? | Termo de parceria + escopo + lista negativa como especificação | [fase-0-desenho-e-contratos.md](fase-0-desenho-e-contratos.md) |
+| 1 | Constituição do corpus | O que o sistema pode consultar, e com que garantias? | Acervo digital organizado e pesquisável | [fase-1-corpus.md](fase-1-corpus.md) |
+| 2 | Protótipo funcional | Isso funciona? Com qual modelo? | Sistema usável internamente + relatório crítico de uso | [fase-2-prototipo.md](fase-2-prototipo.md) |
+| 3 | Avaliação e servidor próprio | Como sabemos se melhorou ou piorou? | Sistema na sede com sigilo integral + protocolo de avaliação | [fase-3-avaliacao-e-servidor.md](fase-3-avaliacao-e-servidor.md) |
+| 4 | Especialização (condicional) | O marco pedagógico esgotou seus limites? | Modelo especializado + artigo | [fase-4-especializacao.md](fase-4-especializacao.md) |
+| 5 | Abertura e sustentação | Como isso sobrevive e se replica? | Metodologia publicada + rotina de manutenção | [fase-5-abertura-e-sustentacao.md](fase-5-abertura-e-sustentacao.md) |
 
 ### Dependências e paralelismo
 
@@ -148,15 +150,18 @@ técnica.
 
 ## 9. Como usar este conjunto de arquivos
 
-```
-00-plano-geral-implementacao.md      ← este documento: sequência, portões, papéis, orçamento
-fase-0-desenho-e-contratos.md        ← decisões políticas e contratos entre camadas
-fase-1-corpus.md                     ← pipeline de ingestão, metadados, direitos, anonimização
-fase-2-prototipo.md                  ← benchmark de modelos, RAG, primeira redação do marco
-fase-3-avaliacao-e-servidor.md       ← casos-teste, harness, hardware, migração
-fase-4-especializacao.md             ← LoRA condicional, Santos Dumont
-fase-5-abertura-e-sustentacao.md     ← publicação, replicação, manutenção
-```
+| Documento | Do que trata |
+|---|---|
+| [00 — Plano geral](00-plano-geral-implementacao.md) | este documento: sequência, portões, papéis, orçamento |
+| [Fase 0 — Desenho e contratos](fase-0-desenho-e-contratos.md) | decisões políticas e contratos entre camadas |
+| [Fase 1 — Corpus](fase-1-corpus.md) | pipeline de ingestão, metadados, direitos, anonimização |
+| [Fase 2 — Protótipo](fase-2-prototipo.md) | benchmark de modelos, RAG, primeira redação do marco |
+| [Fase 3 — Avaliação e servidor](fase-3-avaliacao-e-servidor.md) | casos-teste, harness, hardware, migração |
+| [Fase 4 — Especialização](fase-4-especializacao.md) | LoRA condicional, Santos Dumont |
+| [Fase 5 — Abertura e sustentação](fase-5-abertura-e-sustentacao.md) | publicação, replicação, manutenção |
+
+Os documentos de engenharia e do acervo, que descrevem o que está construído, estão no
+[índice dos documentos](README.md).
 
 Cada arquivo de fase segue a mesma estrutura: objetivo, pré-requisitos, frentes de trabalho, entregáveis, critérios
 de aceite, riscos da fase, decisões que a fase fecha e checklist final.

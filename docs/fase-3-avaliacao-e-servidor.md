@@ -1,5 +1,7 @@
 # Fase 3 — Avaliação e servidor próprio
 
+> [Índice dos documentos](README.md) · ← [Fase 2](fase-2-prototipo.md) · [Fase 4](fase-4-especializacao.md) →
+
 **Duração estimada:** 2–4 meses (prazo de aquisição de hardware é risco de calendário)
 **Custo:** R$ 11.500–31.000 (hardware completo)
 **Natureza:** duas frentes independentes — a intelectualmente mais densa (avaliação) e a mais operacional (servidor).

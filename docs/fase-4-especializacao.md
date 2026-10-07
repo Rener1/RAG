@@ -1,5 +1,7 @@
 # Fase 4 — Especialização (condicional)
 
+> [Índice dos documentos](README.md) · ← [Fase 3](fase-3-avaliacao-e-servidor.md) · [Fase 5](fase-5-abertura-e-sustentacao.md) →
+
 **Duração estimada:** depende de edital externo
 **Custo:** R$ 5.000–60.000 se feita comercialmente; possivelmente ~R$ 0 via edital
 **Natureza:** condicional e **provavelmente desnecessária**. Está no plano por completude.
