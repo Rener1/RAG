@@ -1,6 +1,6 @@
 # Esquema de metadados do acervo
 
-> [Índice dos documentos](README.md) · [Limites dos metadados do acervo](limites-dos-metadados-do-acervo.md) · [Fase 1 — Corpus](fase-1-corpus.md) · [Arquitetura](arquitetura.md) §9
+> [Índice dos documentos](../README.md) · [Limites dos metadados do acervo](limites-dos-metadados-do-acervo.md) · [Fase 1 — Corpus](../plano/fase-1-corpus.md) · [Arquitetura](../engenharia/arquitetura.md) §9
 
 **Versão do esquema:** 0.2 — **proposta, não aprovada**
 **Data:** 2026-09-21
@@ -49,7 +49,7 @@ O esquema de metadados do acervo do Centro de Referência Paulo Freire: **que in
 sistema usa sobre cada documento, de onde cada uma vem, quem decide o que não vem do acervo, e o
 que o sistema faz com cada uma**.
 
-[fase-1-corpus.md](fase-1-corpus.md) classifica o esquema como **a trava cara do projeto** (§2 e §8), porque
+[fase-1-corpus.md](../plano/fase-1-corpus.md) classifica o esquema como **a trava cara do projeto** (§2 e §8), porque
 refazê-lo significava reprocessar o acervo à mão. Com o acervo somente leitura, a trava muda de
 lugar: o que custa caro agora é **errar uma regra de derivação** que já produziu o índice, e
 **decidir mal uma política de coleção** que já valeu para centenas de documentos.
@@ -106,7 +106,7 @@ pontos do índice foram produzidos pela regra antiga.
 
 **7. Registro de quem decidiu e quando.** *(Era: nos pontos de catalogação.)* Não há mais
 catalogação a assinar. Assinam-se as decisões que o projeto toma: cada linha da política por
-coleção e cada bloqueio carregam autoria e data. [fase-1-corpus.md](fase-1-corpus.md) §6 exige registro para
+coleção e cada bloqueio carregam autoria e data. [fase-1-corpus.md](../plano/fase-1-corpus.md) §6 exige registro para
 auditoria, e auditoria sem autoria e data não é auditoria.
 
 ---
@@ -520,7 +520,7 @@ Casos de fronteira:
 
 Sem mudança em relação à versão 0: **`versao_embedding`** só pode ser preenchida no caminho
 `JSONL → payload`, pela indexação; e **`pagina`, `secao`, `inicio` e `fim`** dependem do corte
-sensível à estrutura (caminho A1 de [recorte-de-conteudo-caminhos.md](recorte-de-conteudo-caminhos.md)). Nenhum dos dois
+sensível à estrutura (caminho A1 do [roadmap](../roadmap.md#os-caminhos-de-recorte-que-ficam-para-essa-janela)). Nenhum dos dois
 depende do acervo — vêm do arquivo, não do catálogo.
 
 ---
@@ -770,13 +770,13 @@ reindexar.
 3. Mudança que afete comportamento do sistema — `restricao_uso`, `confiabilidade` — passa pelo
    comitê e dispara o harness de avaliação (`fase-0` §3.5).
 4. Mudança que invalida o índice espera a próxima reindexação obrigatória e entra junto das
-   outras ([recorte-de-conteudo-caminhos.md](recorte-de-conteudo-caminhos.md)).
+   outras ([roadmap](../roadmap.md) §5).
 
 ---
 
 ## 13. Checklist de aceite
 
-Estende o portão G1 → 3 de [fase-1-corpus.md](fase-1-corpus.md) §7 com o que esta versão torna verificável — e
+Estende o portão G1 → 3 de [fase-1-corpus.md](../plano/fase-1-corpus.md) §7 com o que esta versão torna verificável — e
 registra os critérios de lá que ela **não** atende.
 
 - [ ] O esquema está na **versão 1**, aprovado pela direção, pelo comitê e pela curadoria.

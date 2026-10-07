@@ -1,73 +1,26 @@
-# Estado do desenvolvimento
+# Medições
 
-> [Índice dos documentos](README.md) · [Arquitetura](arquitetura.md) · [Fase 2 — Protótipo](fase-2-prototipo.md) · [README do repositório](../README.md)
+> [Índice dos documentos](../README.md) · [Roadmap](../roadmap.md) · [Arquitetura](arquitetura.md) · [Diretrizes](../diretrizes.md) §4
 
-**Última atualização:** 2026-10-07 · 346 testes · commit anterior `9fd8491`
-**Padrões em vigor:** `chunking.estrategia = paragrafo_agrupado` (teto 2000) ·
-`vetorial.colecao = uesp_lore_agrupado_2000` · `busca.reordenar = true` (com ela vale `busca.k = 8`;
-`limiar_relativo = 0,90` só atua com `--sem-reordenar`) · `intermediacao.decompor = true` ·
-`geracao.num_ctx = 8192` · `marco.ativo = generico`
+## Para que serve este documento
 
-## Como usar este documento
+É o **caderno de medições** do projeto: cada número que justifica um padrão em vigor, os
+experimentos que mudaram uma decisão, e os caminhos medidos e rejeitados. Quem quer saber *por
+que* o sistema está configurado como está lê aqui; quem quer saber *o que* está pronto e o que
+falta lê o [roadmap](../roadmap.md).
 
-Diz **em que ponto o código deste repositório está**: o que funciona, o que é
-provisório e o que falta. Escrito para ser lido antes de decidir o que fazer em
-seguida.
-
-**Cobre:** o que está implementado em `src/`, `marcos/`, `avaliacao/` e `tests/`,
-com o que dá para verificar rodando um comando.
-
-**Não cobre:** o andamento do projeto IPF fora deste repositório — catalogação do
-acervo do Centro de Referência, trabalho do comitê pedagógico, aquisição de
-hardware, cronograma. Esses estão nos planos por fase em `docs/`, e o estado
-deles não é verificável daqui.
-
-**Quando atualizar:** a cada mudança que altere alguma linha das tabelas abaixo.
-Número sem data é impressão; se um valor não puder ser reproduzido pelo comando
-indicado, ele saiu de validade.
+- **Cada seção leva a data e o comando que a reproduz.** Número sem isso é impressão
+  ([diretrizes](../diretrizes.md) 4.1).
+- **Não se reescreve medição antiga.** Quando um número é refeito, a remedição entra ao lado,
+  datada, e a antiga fica — é o que permite ver quando algo mudou.
+- Máquina das medições, salvo indicação: 16 GB de VRAM (RX 9070 XT), qwen2.5:7b Q4_K_M, bge-m3.
+- Os números são sobre o **corpus descartável** (UESP) e um gabarito de 40 casos escrito pela
+  equipe técnica. Servem para escolher entre alternativas, não para prometer desempenho no
+  acervo do IPF.
 
 ---
 
-## Pronto
-
-| Camada | O que faz | Onde | Testes |
-|---|---|---|---|
-| Pipeline | download → chunking → indexação → recuperação → geração | `src/rag/etapas/` | 35 |
-| Orquestração | `MotorRag`, o ciclo recuperação + geração | `orquestrador.py` | 10 |
-| Marco pedagógico | carrega, valida e aplica marcos de `marcos/*.md` | `marco.py` | 23 |
-| Mediação de consulta | reformula, decompõe, funde por RRF, deduplica | `mediacao.py` | 40 |
-| Sessão dialógica | triagem, problematização, consulta consolidada | `sessao.py` | 31 |
-| Configuração | padrões → `config.toml` → flags, com origem rastreável | `config.py` | 21 |
-| Janela de contexto | `num_ctx` explícito e orçamento de trechos | `geracao.py`, `orquestrador.py` | 17 |
-| Avaliação (camada 1) | `recall@k`, cobertura, MRR e cortes do orçamento de contexto contra gabarito | `avaliacao.py` | 32 |
-| Regras estruturais | as duas regras de modularidade, mecanizadas | `tests/test_estrutura.py` | 3 |
-| Modos de carga | `total` (padrão, original) e `reduzida` (**experimental**: pausa por lote e threads de CPU do Ollama limitadas) | `carga.py` | 23 |
-| Memória de conversa | reescreve o seguimento como pergunta autônoma e leva as últimas trocas ao prompt | `conversa.py` | 28 |
-
-Interface completa nas três portas (menu, CLI, ações) para tudo acima — não
-existe capacidade alcançável só por uma delas.
-
----
-
-## Provisório — e por quê
-
-| Item | Estado | Destravado por |
-|---|---|---|
-| `marcos/freiriano.md` | **Esqueleto, `versao: 0`.** Só as perguntas que cada seção precisa responder | Redação do comitê pedagógico. [fase-2-prototipo.md](fase-2-prototipo.md) §4.6 é explícito em que não cabe a programadores |
-| `marcos/generico.md` | Ativo por padrão, **sem valor pedagógico** — existe para exercitar o mecanismo | O marco freiriano ficar pronto |
-| Corpus UESP | Descartável, 8896 páginas de lore | Catalogação do acervo do IPF (Fase 1) |
-| `avaliacao/casos.jsonl` | 40 casos escritos pela equipe técnica sobre o corpus descartável | Os 80–150 casos reais do comitê (`fase-3` §4), que vêm do registro de uso do piloto |
-| `avaliacao/casos_conversa.jsonl` | 16 seguimentos escritos pela equipe técnica, 4 deles de troca de assunto | Seguimentos reais, do registro de uso do piloto |
-| Avaliação camada 2 (geração) | **Não existe, e não por esquecimento** | Rubrica humana (`fase-3` §5). `fase-3` §8: LLM como juiz premia o "freirês" que deveria pegar — só pré-filtro, nunca veredito |
-
----
-
-## Medições
-
-Todas reproduzíveis pelos comandos indicados. Feitas em 2026-09-01, nesta
-máquina (16 GB VRAM, qwen2.5:7b Q4_K_M, bge-m3).
-
-### Um defeito do gabarito, corrigido em 2026-09-01
+## Um defeito do gabarito, corrigido em 2026-09-01
 
 As primeiras medições usavam um gabarito com erro meu: escrevi as páginas
 esperadas a partir do meu modelo do assunto, sem notar que o acervo tem
@@ -86,7 +39,7 @@ Regra usada para não cair em circularidade: só entrou página que eu listaria
 sabendo que ela existe, julgada **sem olhar se o sistema a recuperou**. Ajustar
 gabarito para o que o buscador devolve transforma a métrica em espelho.
 
-### Escolha da política de recuperação
+## Escolha da política de recuperação
 
 `python3 main.py avaliar --sem-intermediar` · 40 casos · busca direta
 Coluna "cortes" = casos em que o orçamento de contexto descartou trecho.
@@ -102,18 +55,21 @@ Coluna "cortes" = casos em que o orçamento de contexto descartou trecho.
 | **dinâmico α=0,90** | **88%** | **74%** | **10,3** | 0/40 | 4784 tok |
 | dinâmico α=0,88 | 88% | 76% | 13,0 | 0/40 | 6366 tok |
 
-**Em vigor: quantidade dinâmica em α = 0,90.** Recupera mais que o `k = 12`
-fixo (88% contra 85%) gastando menos trechos (10,3 contra 12), e adapta ao tipo
-de pergunta — menos fontes para dúvida factual, mais para exploração.
+**Sem reordenação, a melhor política é a quantidade dinâmica em α = 0,90.**
+Recupera mais que o `k = 12` fixo (88% contra 85%) gastando menos trechos (10,3
+contra 12), e adapta ao tipo de pergunta — menos fontes para dúvida factual, mais
+para exploração.
 
-`busca.k = 8` fica como o valor usado quando `limiar_relativo` volta a 0.
-Enquanto ele estiver ligado, `main.py config` marca o `k` como sem efeito.
+**O padrão hoje é outro:** com a reordenação ligada (o padrão desde que ela entrou),
+vale o `k = 8` fixo, e o `limiar_relativo` só atua com `--sem-reordenar` — o corte
+por fração do topo pressupõe a lista ordenada por cosseno, e o cross-encoder ordena
+por outro critério. `main.py config` marca o limiar como sem efeito nesse caso.
 
 A partir de `k = 20` o orçamento de contexto começa a cortar, e em `k = 30`
 corta em 15 dos 40 casos — ali o gargalo deixa de ser a recuperação e passa a
 ser a janela.
 
-#### Por que relativo, e não por score absoluto
+### Por que relativo, e não por score absoluto
 
 A versão intuitiva — "recupere tudo acima de um score" — foi medida e **não
 funciona neste corpus**:
@@ -132,7 +88,7 @@ vazios; em 0,60, dez. Por isso `score_minimo` continua em 0.
 O limiar relativo escapa disso porque não tenta separar relevante de
 irrelevante — só mede onde a lista deixa de se parecer com o próprio topo.
 
-### Mediação — de −3 pontos a +2, depois de quatro correções
+## Mediação — de −3 pontos a +2, depois de quatro correções
 
 `python3 main.py avaliar --comparar` · gabarito corrigido
 
@@ -183,7 +139,7 @@ Ressalvas antes de desligá-la: corpus e gabarito são descartáveis, e `recall@
 não enxerga diversidade, que é metade do motivo pedagógico da camada (mostrar
 posições divergentes, `fase-2` §4.6).
 
-### Efeito do idioma da consulta
+## Efeito do idioma da consulta
 
 O corpus é em inglês e as perguntas em português. Medido nos 40 casos, busca
 densa, top-8:
@@ -211,7 +167,7 @@ a declara hoje** — a mediação está restrita a decompor pergunta composta. �
 artefato do corpus descartável: some quando o acervo for em português, e os
 números acima **subestimam** um pouco o sistema final.
 
-### Janela de contexto
+## Janela de contexto
 
 `ollama ps` · `python3 main.py config`
 
@@ -224,7 +180,7 @@ números acima **subestimam** um pouco o sistema final.
 | Prompt com marco genérico | k=3 → 1114 tok; k=8 → 2112 tok | idem |
 | `/api/tokenize` no Ollama 0.33 | não existe (404) | por isso a estimativa é por caracteres |
 
-### Corpus e índice
+## Corpus e índice
 
 | Medida | Valor | Verificação |
 |---|---|---|
@@ -234,7 +190,7 @@ números acima **subestimam** um pouco o sistema final.
 | Chunks anteriores (`paragrafo`) | 69285 · sha256 `a991de28…` · mediana 348 · em `data/chunks_paragrafo.jsonl`, coleção `uesp_lore` | mantidos para comparação |
 | Truncamento no embedding | **descartado como risco** | bge-m3 via Ollama só ignora cauda acima de ~8k chars; zero chunks passam disso |
 
-O truncamento silencioso estava marcado como risco em [fase-2-prototipo.md](fase-2-prototipo.md) §7.
+O truncamento silencioso estava marcado como risco em [fase 2](../plano/fase-2-prototipo.md) §7.
 Está fechado para o corpus atual — mas a verificação é do par modelo+corpus, e
 precisa ser refeita ao trocar qualquer um dos dois.
 
@@ -242,7 +198,7 @@ precisa ser refeita ao trocar qualquer um dos dois.
 caracteres) leva ~17 min sem limite e ~30–35 min em carga reduzida (fração 0,75). Medido ao
 indexar as coleções abaixo.
 
-### Tamanho do recorte — agrupado de 2000 vence (2026-10-05)
+## Tamanho do recorte — agrupado de 2000 vence (2026-10-05)
 
 `paragrafo_agrupado` junta parágrafos consecutivos até o teto, em vez de descartar
 os curtos. Três coleções, mesmo gabarito, mesma configuração (carga reduzida, fração 0,75, no
@@ -289,7 +245,7 @@ agrupado (sha256 `47ed4084…`, conferido byte a byte contra `main.py chunking` 
 os padrões novos), e o anterior ficou em `data/chunks_paragrafo.jsonl`. Para
 comparar com o corte antigo: `--colecao uesp_lore --chunks chunks_paragrafo.jsonl`.
 
-### Memória de conversa — o seguimento entendido (2026-10-07)
+## Memória de conversa — o seguimento entendido (2026-10-07)
 
 Antes, cada pergunta do modo conversa chegava sozinha: "e os Khajiit?" ia à busca
 como "e os Khajiit?". Agora, com histórico, uma chamada ao modelo reescreve o
@@ -323,7 +279,7 @@ buscador devolve. O ganho é grande demais para ser ruído, mas o gabarito é pe
 descartável. A geração com histórico (o "explique o ponto 2") **não é medida** —
 é rubrica humana, como toda qualidade de resposta.
 
-### Limitador de carga — poupar o hardware de dentro do app (2026-10-05)
+## Limitador de carga — poupar o hardware de dentro do app (2026-10-05)
 
 **Exposto como dois modos desde 2026-10-07:** `--carga total` (padrão, o
 comportamento original) e `--carga reduzida` (**experimental**, por causa do efeito
@@ -376,7 +332,7 @@ limitador não deve ser tratado como garantia de potência em execução longa.*
 Para investigar: indexar de novo com o monitor de sysfs e registrar a duração de
 cada lote junto com o horário.
 
-### Limiar de redundância da mediação
+## Limiar de redundância da mediação
 
 Cosseno entre consultas curtas **não separa** redundante de distinto:
 
@@ -393,7 +349,7 @@ trabalho é o prompt. Não adiante o limiar sem refazer essa medição.
 
 ---
 
-### BM25 híbrido — depende do idioma, e o peso do RRF decide
+## BM25 híbrido — depende do idioma, e o peso do RRF decide
 
 Medido com índice invertido sobre os 69285 chunks. **A primeira medição deu o
 resultado errado** por usar RRF com pesos iguais, o que deixa um BM25 fraco
@@ -472,58 +428,3 @@ O que a mesma fonte aponta a favor é outra coisa: o tamanho de referência é ~
 tokens, e a **mediana dos nossos chunks é 85 tokens** — de quatro a seis vezes
 menor. Esse experimento foi feito em 2026-10-05 e o agrupado de 2000 caracteres
 ganhou (ver "Tamanho do recorte").
-
----
-
-## Pendente, em ordem
-
-| # | Item | Destravado por | Invalida o índice? |
-|---|---|---|---|
-| 1 | Entender os picos de 200–250 W na indexação longa em carga reduzida | Indexar com monitor de sysfs e duração de cada lote | não |
-| 2 | Preencher página e offset nos campos de proveniência do `Chunk` | Troca para o acervo do IPF, que já obriga a reindexar | sim, junto da troca |
-| 3 | **MMR** — diversificação contínua, em vez de teto rígido | `buscar(..., com_vetores=True)` no protocolo | não |
-| 4 | Ligar o **BM25 híbrido** por padrão | Decidir se +2 de recall paga +37% de tempo | não |
-| 5 | **Contextual retrieval** — prefixo de contexto por chunk gerado por LLM | Uma chamada de modelo por chunk (26808) | sim; janela da troca de corpus |
-| 6 | Avaliação camada 2 — rubrica e casos reais | Comitê pedagógico + registro de uso do piloto | não |
-| 7 | Conferir `chunking.tamanho_maximo` contra corpus novo | Troca de corpus | — |
-| 8 | **Metadados do acervo** — etapa de derivação a partir da exportação DSpace, filtro de `restricao_uso` dentro da query, `pagina` e `uri` na citação, `versao_embedding` preenchida, triagem automática de dados pessoais | Aprovação do esquema v0.2 e as decisões de direção de §11 dele | payload sim, vetor não |
-
-Os caminhos A1–A6 estão detalhados em
-[recorte-de-conteudo-caminhos.md](recorte-de-conteudo-caminhos.md). O item 8 está detalhado em
-[esquema-de-metadados.md](esquema-de-metadados.md) §8.4 — são as dez mudanças de código que o
-esquema de metadados do acervo exige, nenhuma delas implementada. O acervo é um repositório DSpace
-cujos metadados não serão alterados nem preenchidos; o que isso impede está em
-[limites-dos-metadados-do-acervo.md](limites-dos-metadados-do-acervo.md).
-
-**Regra que organiza a coluna da direita:** toda mudança que invalida o índice
-espera pela próxima reindexação obrigatória, e todas entram juntas. Reindexar
-custava horas; com o embedding na GPU são ~17 min, o que enfraquece a regra para
-experimentos em coleção separada, mas não para a coleção padrão.
-
----
-
-## Decisões pendentes
-
-1. **Ligar o BM25 híbrido por padrão?** Ganha com idioma casado, perde sem. Como
-   a mediação hoje traduz, o cenário é o favorável — mas medi antes do conserto
-   da quantidade e o número precisa ser refeito.
-
----
-
-## Invariantes — o que não pode quebrar
-
-```bash
-python3 -m unittest discover -s tests -t tests   # 313 testes, sem rede nem serviço
-ruff check src/ tests/ main.py                   # lint
-python3 main.py ambiente                         # serviços, modelos e artefatos
-sha256sum data/chunks.jsonl                      # 47ed4084…  (26808 chunks)
-```
-
-1. **Nenhum módulo de `etapas/` importa outro de `etapas/`.**
-2. **As etapas dependem de `protocolos.py`, nunca de `clientes/`.**
-
-As duas são verificadas por `tests/test_estrutura.py`, que percorre os módulos
-com `ast` — não dependem de ninguém lembrar delas. `marco.py`, `mediacao.py`,
-`sessao.py` e `avaliacao.py` ficam na raiz do pacote pelo mesmo motivo de
-`orquestrador.py`: compõem recuperação com geração, e isso não pertence a
-nenhuma etapa.

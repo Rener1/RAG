@@ -1,6 +1,6 @@
 # Fase 1 — Constituição do corpus
 
-> [Índice dos documentos](README.md) · ← [Fase 0](fase-0-desenho-e-contratos.md) · [Fase 2](fase-2-prototipo.md) →
+> [Índice dos documentos](../README.md) · ← [Fase 0](fase-0-desenho-e-contratos.md) · [Fase 2](fase-2-prototipo.md) →
 
 **Duração estimada:** 3–6 meses (escala com o volume do acervo)
 **Custo:** R$ 3.000–10.000 (digitalização e curadoria)

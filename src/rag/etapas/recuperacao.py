@@ -3,7 +3,7 @@ Etapa 4 — recuperação.
 
 Pergunta em português → vetor → trechos mais próximos no banco vetorial.
 Nenhum LLM de geração envolvido: esta etapa é isolável de propósito, porque
-recall@k é avaliável sem gerar uma linha de texto (`docs/fase-3-avaliacao-e-servidor.md`).
+recall@k é avaliável sem gerar uma linha de texto (`docs/plano/fase-3-avaliacao-e-servidor.md`).
 
 Ao depurar qualidade de resposta, o lugar de olhar primeiro é aqui: se o
 trecho certo não foi recuperado, nenhum ajuste de prompt conserta a resposta.

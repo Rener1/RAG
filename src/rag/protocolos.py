@@ -116,7 +116,7 @@ class MarcoPedagogico(Protocol):
     """O documento que define como o sistema se comporta.
 
     A etapa de geração depende disto, e não da classe `Marco`: o marco vive em
-    arquivo versionado fora do código (`docs/fase-0-desenho-e-contratos.md` §3.5),
+    arquivo versionado fora do código (`docs/plano/fase-0-desenho-e-contratos.md` §3.5),
     e a etapa não precisa saber de onde ele veio nem como foi analisado.
     """
 

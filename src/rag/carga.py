@@ -40,7 +40,7 @@ coincide com o trabalho dos outros e a GPU fica ocupada quase o tempo todo.
 
 **Em aberto — por isso experimental:** numa indexação real de 64 min, a placa ficou em ~80 W nos
 primeiros 25 min e depois subiu para 200–250 W, com o limitador cumprindo a
-proporção. Não reproduziu em execução curta. Ver `docs/estado-do-desenvolvimento.md`.
+proporção. Não reproduziu em execução curta. Ver `docs/engenharia/medicoes.md`.
 
 Mora na raiz do pacote porque embrulha peças pelos protocolos — as etapas
 recebem o embutidor limitado sem saber que ele é limitado, e nenhuma muda.

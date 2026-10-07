@@ -4,7 +4,7 @@ Etapa 5 — geração da resposta.
 Monta o prompt aumentado (pergunta + trechos recuperados) e o entrega ao
 gerador. O texto que orienta o comportamento não é escrito aqui: vem do marco
 pedagógico, que é dado versionado carregado em tempo de execução e nunca prompt
-no código (`docs/fase-0-desenho-e-contratos.md` §3.5).
+no código (`docs/plano/fase-0-desenho-e-contratos.md` §3.5).
 
 `montar_prompt` continua existindo como o caminho sem marco — é o placeholder
 genérico de antes, mantido para quando `marco.ativo` está vazio e para os testes
@@ -182,7 +182,7 @@ def validar_citacoes(texto: str, trechos: list[TrechoRecuperado]) -> list[str]:
     """Citações do texto gerado que não correspondem a nenhum trecho recuperado.
 
     A diretriz de explicitar fonte e autoria exige validar que o citado existe
-    no contexto recuperado (`docs/fase-2-prototipo.md` §4.6) — sem isso, uma
+    no contexto recuperado (`docs/plano/fase-2-prototipo.md` §4.6) — sem isso, uma
     citação inventada é indistinguível de uma verdadeira para quem lê, que é o
     modo de falha mais caro que este sistema tem.
     """

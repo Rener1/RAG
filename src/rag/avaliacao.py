@@ -1,7 +1,7 @@
 """
 Camada 4 — avaliação da recuperação.
 
-`docs/fase-3-avaliacao-e-servidor.md` §7 separa as métricas por camada e avisa
+`docs/plano/fase-3-avaliacao-e-servidor.md` §7 separa as métricas por camada e avisa
 por quê: **"não misturar: recuperação ruim e geração ruim têm correções
 opostas"**. Aqui mora só a recuperação — automática e barata, para rodar a cada
 mudança de chunking, embedding, `k` ou mediação.

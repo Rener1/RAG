@@ -6,7 +6,7 @@ natural, escrito pelo comitê pedagógico e não por programadores, que define
 como o sistema se comporta, o que recusa fazer, que perguntas devolve antes de
 responder e em que formato entrega. Os documentos de origem são explícitos em
 três exigências que um prompt no código não atende
-(`docs/fase-2-prototipo.md` §4.6): ele é versionado com diff legível, editável
+(`docs/plano/fase-2-prototipo.md` §4.6): ele é versionado com diff legível, editável
 sem deploy por quem não programa, e toda alteração dispara o harness.
 
 Daí o formato: Markdown com frontmatter. O comitê escreve prosa, e prosa em

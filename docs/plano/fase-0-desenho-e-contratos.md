@@ -1,6 +1,6 @@
 # Fase 0 — Desenho e contratos
 
-> [Índice dos documentos](README.md) · ← [Plano geral](00-plano-geral-implementacao.md) · [Fase 1](fase-1-corpus.md) →
+> [Índice dos documentos](../README.md) · ← [Plano geral](00-plano-geral-implementacao.md) · [Fase 1](fase-1-corpus.md) →
 
 **Duração estimada:** 3–6 semanas
 **Custo:** ~R$ 0 (tempo institucional)

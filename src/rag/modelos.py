@@ -15,7 +15,7 @@ class Chunk:
     """Um trecho de documento, com a proveniência necessária pra citar a fonte.
 
     Os cinco primeiros campos são o núcleo, presente desde sempre. Os demais são
-    a proveniência que `docs/fase-1-corpus.md` §4.7 exige — "cada chunk carrega
+    a proveniência que `docs/plano/fase-1-corpus.md` §4.7 exige — "cada chunk carrega
     documento de origem, página, offset (…) é a decisão de ingestão que mais dói
     se for esquecida, porque exige reprocessar tudo". Eles existem agora, com
     valor neutro, para que a estratégia de corte por seção e a troca para o
@@ -139,7 +139,7 @@ class ResultadoEtapa:
 class TipoDeDemanda(StrEnum):
     """Os três tipos de demanda que a triagem distingue.
 
-    Vêm dos documentos de origem (`docs/fase-3-avaliacao-e-servidor.md` §4), onde
+    Vêm dos documentos de origem (`docs/plano/fase-3-avaliacao-e-servidor.md` §4), onde
     são campo obrigatório dos casos-teste. A dúvida factual atalha direto para a
     busca; as outras duas passam pela problematização.
     """

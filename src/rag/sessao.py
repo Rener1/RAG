@@ -2,7 +2,7 @@
 Sessão dialógica — a máquina de estados que problematiza antes de responder.
 
 O fluxo padrão deste sistema não é pergunta→resposta. É pergunta→devolução de
-perguntas→construção conjunta (`docs/fase-2-prototipo.md` §4.6). A razão é de
+perguntas→construção conjunta (`docs/plano/fase-2-prototipo.md` §4.6). A razão é de
 forma, não de conteúdo: um sistema que recebe uma demanda e devolve o produto
 pronto é educação bancária automatizada, e o conteúdo diria Freire enquanto a
 forma diria o contrário.
@@ -129,7 +129,7 @@ def montar_prompt_de_problematizacao(
     e não genéricas. É a mitigação direta do modo de falha central destes
     documentos: vocabulário militante bem articulado, aplicado sem ancoragem no
     território concreto e sem consequência prática
-    (`docs/fase-3-avaliacao-e-servidor.md` §3).
+    (`docs/plano/fase-3-avaliacao-e-servidor.md` §3).
     """
     extra = f"\n\nOrientação:\n{orientacao}" if orientacao.strip() else ""
 

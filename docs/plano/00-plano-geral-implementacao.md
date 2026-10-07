@@ -1,6 +1,6 @@
 # IA Freiriana — Plano Geral de Implementação
 
-> [Índice dos documentos](README.md) · [Fase 0](fase-0-desenho-e-contratos.md) →
+> [Índice dos documentos](../README.md) · [Fase 0](fase-0-desenho-e-contratos.md) →
 
 > **Documentos de origem**
 > - *IPF — Projeto desenvolvimento IA Freiriana* (Instituto Paulo Freire, 13/08/2026) — decisões pedagógicas, de governança e de captação.
@@ -161,7 +161,7 @@ técnica.
 | [Fase 5 — Abertura e sustentação](fase-5-abertura-e-sustentacao.md) | publicação, replicação, manutenção |
 
 Os documentos de engenharia e do acervo, que descrevem o que está construído, estão no
-[índice dos documentos](README.md).
+[índice dos documentos](../README.md).
 
 Cada arquivo de fase segue a mesma estrutura: objetivo, pré-requisitos, frentes de trabalho, entregáveis, critérios
 de aceite, riscos da fase, decisões que a fase fecha e checklist final.

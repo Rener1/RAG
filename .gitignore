@@ -8,7 +8,7 @@ data/qdrant_storage/
 config.toml
 
 # Documento de origem recebido do IPF — institucional, versionado fora daqui
-docs/*.pdf
+docs/plano/*.pdf
 
 __pycache__/
 *.py[cod]

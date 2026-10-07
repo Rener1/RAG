@@ -480,7 +480,7 @@ def acao_avaliar(
     """Mede a recuperação contra o gabarito. Não gera texto — só camada 1.
 
     A qualidade da resposta não é medida aqui de propósito: é rubrica humana
-    (`docs/fase-3-avaliacao-e-servidor.md` §5), e métrica automática não pega o
+    (`docs/plano/fase-3-avaliacao-e-servidor.md` §5), e métrica automática não pega o
     modo de falha que importa.
     """
     caminho = caminho_dos_casos or servico.config.caminhos.casos_de_avaliacao

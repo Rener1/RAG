@@ -99,7 +99,7 @@ class ConfigChunking:
     # Agrupado desde 2026-10-05: junta parágrafos consecutivos até o teto, em vez
     # de um chunk por parágrafo. Mediana de ~400 tokens contra ~85, e medido
     # melhor em tudo — busca direta 90% contra 85% de recall, MRR 0,75 contra
-    # 0,60. "paragrafo" continua disponível; ver docs/estado-do-desenvolvimento.md.
+    # 0,60. "paragrafo" continua disponível; ver docs/engenharia/medicoes.md.
     estrategia: str = "paragrafo_agrupado"  # ver rag.etapas.chunking.ESTRATEGIAS
     tamanho_minimo: int = 60  # caracteres — abaixo disso o trecho não se sustenta sozinho
     # No agrupado é o tamanho-alvo do recorte. Não subir sem subir junto
@@ -314,7 +314,7 @@ class ConfigCarga:
     Experimental porque não se comportou bem em execução longa: numa indexação
     de 64 min, a placa ficou em ~80 W nos primeiros 25 min e depois voltou a
     200–250 W, sem explicação até agora. Em execução curta, mediu ~90 W contra
-    ~300 W do modo total. Ver `docs/estado-do-desenvolvimento.md`.
+    ~300 W do modo total. Ver `docs/engenharia/medicoes.md`.
     """
 
     modo: str = "total"  # "total" | "reduzida"

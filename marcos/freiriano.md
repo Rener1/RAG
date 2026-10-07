@@ -11,7 +11,7 @@ problematizar: sim
 > **Este arquivo é um esqueleto, não um marco.**
 >
 > A redação é do comitê pedagógico, em linguagem natural, e não de programadores
-> (`docs/fase-2-prototipo.md` §4.6). O que a equipe técnica entrega aqui é a
+> (`docs/plano/fase-2-prototipo.md` §4.6). O que a equipe técnica entrega aqui é a
 > estrutura: quais seções o sistema lê e para que serve cada uma. O texto abaixo
 > de cada cabeçalho está no lugar do que o comitê vai escrever, e o que está
 > escrito hoje é a **pergunta que aquela seção precisa responder**, junto da
@@ -60,7 +60,7 @@ pelo comitê: o que, exatamente, ele se recusa a entregar.
 Diretriz 4. A saída padrão é material de trabalho para um coletivo — roteiros de
 escuta, temas geradores candidatos, matrizes de contradição, perguntas para a
 plenária — e não um documento final assinável. Quais formatos, e qual a estrutura
-de cada um, é decisão pedagógica em aberto (`docs/fase-5-abertura-e-sustentacao.md` §6).
+de cada um, é decisão pedagógica em aberto (`docs/plano/fase-5-abertura-e-sustentacao.md` §6).
 A escrever pelo comitê.
 
 ## Decomposição
@@ -77,7 +77,7 @@ A escrever pelo comitê.
 *Como o sistema distingue os tipos de demanda.*
 
 Diretriz 1. Os três tipos são pedido de produto acabado, dúvida factual e
-exploração (`docs/fase-3-avaliacao-e-servidor.md` §4). A dúvida factual vai
+exploração (`docs/plano/fase-3-avaliacao-e-servidor.md` §4). A dúvida factual vai
 direto à busca; as outras duas passam pela problematização. A escrever pelo
 comitê: como reconhecer cada uma.
 

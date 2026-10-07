@@ -6,7 +6,7 @@ está conferida à mão em casos pequenos. Um harness com métrica errada é pio
 harness nenhum: dá confiança numerada a uma conclusão falsa.
 
 Só a camada 1 (recuperação). A qualidade da resposta é rubrica humana
-(`docs/fase-3-avaliacao-e-servidor.md` §5) e não é medida aqui.
+(`docs/plano/fase-3-avaliacao-e-servidor.md` §5) e não é medida aqui.
 """
 
 import json

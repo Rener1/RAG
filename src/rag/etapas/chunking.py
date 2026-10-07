@@ -8,7 +8,7 @@ A estratégia de corte é plugável (`ESTRATEGIAS`). A padrão é o parágrafo
 agrupado, desde 2026-10-05; o corte por parágrafo simples continua disponível, e
 com ele a saída é byte a byte idêntica à da versão original do projeto. Trocar o
 corte invalida o índice construído com o outro. O corte sensível à estrutura por
-seção descrito em `docs/fase-1-corpus.md` entra aqui como mais uma estratégia,
+seção descrito em `docs/plano/fase-1-corpus.md` entra aqui como mais uma estratégia,
 quando for a hora, sem mexer no resto.
 """
 

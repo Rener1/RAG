@@ -1,13 +1,13 @@
 # Arquitetura
 
-> [Índice dos documentos](README.md) · [Estado do desenvolvimento](estado-do-desenvolvimento.md) ·
-> [README do repositório](../README.md)
+> [Índice dos documentos](../README.md) · [Roadmap](../roadmap.md) · [Medições](medicoes.md) ·
+> [README do repositório](../../README.md)
 
 Este documento descreve como o código deste repositório é organizado e por quê. É para quem vai
 mantê-lo ou chega agora no projeto.
 
-Ele **não traz números**: as medições que justificam cada decisão estão no
-[estado do desenvolvimento](estado-do-desenvolvimento.md), e aqui aparecem só como link. Assim,
+Ele **não traz números**: as medições que justificam cada decisão estão em
+[medições](medicoes.md), e aqui aparecem só como link. Assim,
 quando uma medição mudar, há um lugar só para atualizar.
 
 ---
@@ -18,7 +18,7 @@ Um pipeline RAG local. Ele baixa um corpus, corta os documentos em trechos, gera
 e indexa tudo num banco vetorial. Diante de uma pergunta, recupera os trechos mais pertinentes e
 pede a um modelo de linguagem que responda **a partir deles**, citando a fonte.
 
-Sobre esse ciclo, três camadas próprias do projeto:
+Sobre esse ciclo, quatro camadas próprias do projeto:
 
 - a **memória de conversa**, que entende um seguimento ("e os Khajiit?") à luz das perguntas anteriores;
 - a **sessão dialógica**, que problematiza antes de responder;
@@ -58,12 +58,12 @@ troca de corpus mude o download e a coleção, não a estrutura (ver §8).
 1. **Nenhum módulo de `etapas/` importa outro módulo de `etapas/`.** As etapas se comunicam por
    arquivo em disco. É isso que permite refazer uma etapa (recortar de outro jeito, por exemplo)
    sem tocar nas outras.
-2. **As etapas dependem de [`protocolos.py`](../src/rag/protocolos.py), nunca de `clientes/`.**
+2. **As etapas dependem de [`protocolos.py`](../../src/rag/protocolos.py), nunca de `clientes/`.**
    Uma etapa recebe "algo que embute texto", não "o cliente do Ollama". Trocar o banco vetorial é
    escrever outra classe com os mesmos métodos e mudar uma linha em
-   [`servico.py`](../src/rag/servico.py).
+   [`servico.py`](../../src/rag/servico.py).
 
-As duas são verificadas pela suíte: [`tests/test_estrutura.py`](../tests/test_estrutura.py)
+As duas são verificadas pela suíte: [`tests/test_estrutura.py`](../../tests/test_estrutura.py)
 percorre os imports com `ast` e falha se uma delas quebrar. A segunda regra é também o que deixa os
 testes rodarem sem Qdrant nem Ollama: eles usam dublês (`tests/apoio.py`) no lugar dos clientes.
 
@@ -113,9 +113,9 @@ Cada etapa lê o artefato da anterior e grava o seu. Pode ser refeita isoladamen
 
 | Etapa | Lê | Grava | Notas |
 |---|---|---|---|
-| [`download`](../src/rag/etapas/download.py) | API MediaWiki da UESP | `data/corpus_uesp/*.txt` | Será substituída para o acervo do IPF (§8) |
-| [`chunking`](../src/rag/etapas/chunking.py) | os `.txt` | `data/chunks.jsonl` | Estratégia plugável (`ESTRATEGIAS`). Grava em arquivo temporário e troca no fim: uma interrupção não corrompe o anterior |
-| [`indexacao`](../src/rag/etapas/indexacao.py) | `chunks.jsonl` | coleção no Qdrant | Retoma de onde parou; confere a dimensão do vetor **antes** de processar; um lote que falha não derruba os outros |
+| [`download`](../../src/rag/etapas/download.py) | API MediaWiki da UESP | `data/corpus_uesp/*.txt` | Será substituída para o acervo do IPF (§8) |
+| [`chunking`](../../src/rag/etapas/chunking.py) | os `.txt` | `data/chunks.jsonl` | Estratégia plugável (`ESTRATEGIAS`). Grava em arquivo temporário e troca no fim: uma interrupção não corrompe o anterior |
+| [`indexacao`](../../src/rag/etapas/indexacao.py) | `chunks.jsonl` | coleção no Qdrant | Retoma de onde parou; confere a dimensão do vetor **antes** de processar; um lote que falha não derruba os outros |
 
 Um chunk carrega a sua proveniência (`chunk_id`, documento, título e os campos reservados para
 página, seção, offset e restrição de uso). Esses campos vão para o payload do Qdrant. É de lá que
@@ -190,7 +190,7 @@ métodos com a mesma forma.
 | `MarcoPedagogico` | seções e metadados do marco | `Marco` | `MarcoFalso` |
 
 **Divergência registrada com o plano.** O contrato da
-[Fase 0 §3.5](fase-0-desenho-e-contratos.md) pede um runtime de inferência "compatível com a API
+[Fase 0 §3.5](../plano/fase-0-desenho-e-contratos.md) pede um runtime de inferência "compatível com a API
 da OpenAI". O código fala a API **nativa** do Ollama (`/api/embed`, `/api/generate`). Isso é
 contornável, porque trocar de runtime é escrever outro cliente para os mesmos dois protocolos, mas
 é uma diferença real e está registrada aqui para não se perder.
@@ -211,7 +211,7 @@ modo que rodar só o chunking não exige Qdrant nem Ollama de pé. Também decid
   `None` com a memória desligada. Ela usa o gerador de apoio, como a triagem e a
   mediação;
 - no modo de carga `reduzida` (experimental; o padrão é `total`), embutidor, reordenador e gerador de apoio são
-  embrulhados pelo limitador de [`carga.py`](../src/rag/carga.py), um só para o processo inteiro.
+  embrulhados pelo limitador de [`carga.py`](../../src/rag/carga.py), um só para o processo inteiro.
   As etapas recebem a peça embrulhada sem saber disso.
 
 ### 6.2 Configuração em camadas
@@ -220,7 +220,7 @@ modo que rodar só o chunking não exige Qdrant nem Ollama de pé. Também decid
 padrões em config.py  →  config.toml (opcional)  →  flags da CLI / menu
 ```
 
-- **Os padrões estão no código**, nas dataclasses de [`config.py`](../src/rag/config.py), cada um
+- **Os padrões estão no código**, nas dataclasses de [`config.py`](../../src/rag/config.py), cada um
   com o comentário que diz por que vale aquilo.
 - **O `config.toml` guarda só o que difere do padrão.** Apagá-lo devolve o comportamento
   documentado.
@@ -232,15 +232,15 @@ padrões em config.py  →  config.toml (opcional)  →  flags da CLI / menu
 ### 6.3 Interface
 
 Menu e CLI são duas portas para as mesmas funções de
-[`interface/acoes.py`](../src/rag/interface/acoes.py). **Não existe capacidade que só uma das
+[`interface/acoes.py`](../../src/rag/interface/acoes.py). **Não existe capacidade que só uma das
 duas alcance**: ao acrescentar uma, a ação entra em `acoes.py` e é ligada nas duas.
 
 ---
 
 ## 7. O marco pedagógico
 
-O marco é **dado, não código**: um Markdown com frontmatter em [`marcos/`](../marcos/), carregado
-em tempo de execução e editável pelo comitê sem programar ([instruções](../marcos/LEIA-ME.md)).
+O marco é **dado, não código**: um Markdown com frontmatter em [`marcos/`](../../marcos), carregado
+em tempo de execução e editável pelo comitê sem programar ([instruções](../../marcos/LEIA-ME.md)).
 
 - Três seções alimentam camadas diferentes: `Decomposição` orienta a mediação; `Triagem` e
   `Problematização` orientam a sessão. As demais entram no prompt da resposta, e uma seção nova
@@ -256,20 +256,20 @@ em tempo de execução e editável pelo comitê sem programar ([instruções](..
 - **A avaliação mede só a recuperação** (recall@k, cobertura, MRR e quantos casos o orçamento de
   contexto cortaria), sem gerar uma linha de texto. `avaliar --conversa` mede a memória de
   conversa num gabarito próprio de seguimentos, comparando o seguimento cru com o reescrito. A qualidade da resposta é rubrica humana, por
-  decisão do plano ([Fase 3](fase-3-avaliacao-e-servidor.md) §5 e §8).
+  decisão do plano ([Fase 3](../plano/fase-3-avaliacao-e-servidor.md) §5 e §8).
 - **Implantação:** o Qdrant roda em container; o Ollama roda no host, onde a GPU já está
   configurada. A aplicação roda no host ou em container com rede do host. A variante `rag-gpu`
-  traz o torch para o reordenador. Os detalhes estão no [README](../README.md#rodando-em-container).
+  traz o torch para o reordenador. Os detalhes estão no [README](../../README.md#rodando-em-container).
 - **Carga no hardware:** dois modos. `--carga total`, o padrão, é o comportamento original.
   `--carga reduzida` é **experimental**: descansa uma fração do tempo depois de cada lote e
   limita as threads de CPU do Ollama. As medições, e o efeito ainda não explicado que o mantém
-  experimental, estão no [estado](estado-do-desenvolvimento.md).
+  experimental, estão nas [medições](medicoes.md).
 
 ---
 
 ## 9. Onde o acervo do Instituto vai entrar
 
-O desenho está em [esquema de metadados](esquema-de-metadados.md) §8. Em resumo, o que muda:
+O desenho está em [esquema de metadados](../acervo/esquema-de-metadados.md) §8. Em resumo, o que muda:
 
 | O quê | Como |
 |---|---|
@@ -277,7 +277,7 @@ O desenho está em [esquema de metadados](esquema-de-metadados.md) §8. Em resum
 | Coleção | `uesp_lore_*` → `corpus_ipf`, por configuração |
 | Filtro de restrição de uso | `RepositorioVetorial.buscar` passa a receber filtro, aplicado **dentro** da query e por lista de permitidos. Vazio passa a significar "não classificado", e não classificado não é recuperado |
 | Citação | `pagina` e `uri` no `TrechoRecuperado`; a citação vira link verificável |
-| Recorte | Corte sensível à estrutura, por seção ([caminhos de recorte](recorte-de-conteudo-caminhos.md), A1) |
+| Recorte | Corte sensível à estrutura, por seção ([roadmap](../roadmap.md#os-caminhos-de-recorte-que-ficam-para-essa-janela), A1) |
 
 O que **não** muda: as duas regras do §2, os protocolos, a composição e as camadas de sessão,
 mediação e marco.

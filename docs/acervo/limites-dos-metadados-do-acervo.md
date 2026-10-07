@@ -1,6 +1,6 @@
 # Limites dos metadados do acervo
 
-> [Índice dos documentos](README.md) · [Esquema de metadados](esquema-de-metadados.md) · [Fase 1 — Corpus](fase-1-corpus.md)
+> [Índice dos documentos](../README.md) · [Esquema de metadados](esquema-de-metadados.md) · [Fase 1 — Corpus](../plano/fase-1-corpus.md)
 
 **Data:** 2026-09-21
 **Status:** análise técnica. Fundamenta a versão 0.2 de
@@ -207,7 +207,7 @@ nosso OCR.
 
 `pagina`, `secao`, `inicio` e `fim` vêm da **extração do PDF**, não do catálogo. A proveniência
 por chunk (`fase-1` §4.7) continua implementável exatamente como
-[recorte-de-conteudo-caminhos.md](recorte-de-conteudo-caminhos.md) descreve (caminho A1).
+[roadmap](../roadmap.md#os-caminhos-de-recorte-que-ficam-para-essa-janela) descreve (caminho A1).
 
 ---
 
@@ -336,10 +336,7 @@ primeiro atacando o risco que o PDF identifica como principal.
 
 ### Decisões que este documento pede
 
-| Decisão | De quem | Bloqueia |
-|---|---|---|
-| Aceitar o depósito no repositório como evidência de direitos, por coleção | Direção | Toda indexação |
-| Tratamento de dados pessoais: escopo, triagem automática, risco aceito | Direção + comitê | Toda indexação |
-| Quais coleções entram, e com que restrição | Direção + curadoria | Toda indexação |
-| Contexto de produção de cada coleção | Curadoria | Qualidade da resposta, não a indexação |
-| Peso dos estratos para confiabilidade | Comitê | Nada — entra como `nao_avaliada` |
+As cinco decisões que saem desta análise — depósito como evidência de direitos, tratamento de
+dados pessoais, coleções que entram, contexto de cada coleção e escala de confiabilidade — estão
+listadas, com dono e o que cada uma bloqueia, num lugar só: o
+[esquema de metadados](esquema-de-metadados.md) §11.

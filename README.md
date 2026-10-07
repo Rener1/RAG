@@ -4,10 +4,10 @@ Pipeline RAG que roda inteiramente na máquina local: download de corpus →
 chunking → embedding/indexação → recuperação → geração. Protótipo da **Fase 2**
 do projeto IA Freiriana (Instituto Paulo Freire).
 
-**Documentação:** o [índice dos documentos](docs/README.md) diz por onde começar.
-Os principais são a [arquitetura](docs/arquitetura.md), o
-[estado do desenvolvimento](docs/estado-do-desenvolvimento.md) e o
-[plano por fases](docs/00-plano-geral-implementacao.md).
+**Documentação:** o [índice dos documentos](docs/README.md) diz por onde começar. O
+[roadmap](docs/roadmap.md) diz o que está pronto e o que falta; as
+[diretrizes](docs/diretrizes.md), como se trabalha aqui; a
+[arquitetura](docs/engenharia/arquitetura.md), como o código se organiza.
 
 O corpus atual (lore de Elder Scrolls, da UESP) é **descartável** — serve para
 exercitar o pipeline com volume real enquanto o acervo do Centro de Referência
@@ -41,7 +41,7 @@ podman compose run --rm rag buscar "..."        # ou um subcomando
 
 ### Com reordenação por cross-encoder
 
-A reordenação melhora bastante a recuperação (95% de recall contra 88%), mas
+A reordenação melhora a recuperação ([medições](docs/engenharia/medicoes.md)), mas
 precisa de `torch`, que é pesado e **específico do seu acelerador**. Descubra
 qual a sua máquina precisa e construa:
 
@@ -150,7 +150,7 @@ Cada etapa consome o artefato da anterior:
 |---|-------|---------|--------|-------|
 | 1 | download | API da UESP | `data/corpus_uesp/*.txt` | rede, ~9k páginas |
 | 2 | chunking | `data/corpus_uesp/` | `data/chunks.jsonl` | segundos |
-| 3 | indexação | `data/chunks.jsonl` | coleção no Qdrant | **horas** |
+| 3 | indexação | `data/chunks.jsonl` | coleção no Qdrant | ~17 min na GPU; muito mais em CPU |
 | 4 | recuperação | coleção | trechos | instantâneo |
 | 5 | geração | trechos | resposta | ~segundos a minutos |
 
@@ -161,54 +161,23 @@ resposta.
 
 ## Estrutura
 
-Visão resumida. A explicação completa, com o fluxo de uma pergunta e os contratos, está em
-[docs/arquitetura.md](docs/arquitetura.md).
-
 ```
-main.py                  ponto de entrada único (menu + CLI)
-config.exemplo.toml      modelo do config.toml desta máquina
-marcos/                  marcos pedagógicos, em Markdown — ver marcos/LEIA-ME.md
-avaliacao/               gabarito da avaliação de recuperação
-src/rag/
-  config.py              todos os parâmetros, mais leitura e escrita do config.toml
-  modelos.py             estruturas do domínio (Chunk, TrechoRecuperado, Sessao...)
-  protocolos.py          contratos das peças substituíveis
-  erros.py               exceções que a interface sabe explicar
-  orquestrador.py        o ciclo RAG: recuperação + geração
-  marco.py               carrega e valida os marcos pedagógicos
-  mediacao.py            reformula e decompõe a pergunta antes da busca
-  sessao.py              a máquina de estados que problematiza antes de responder
-  conversa.py            memória entre perguntas do modo conversa
-  avaliacao.py           mede recall@k contra o gabarito
-  acelerador.py          detecta a GPU e diz qual torch instalar
-  lexico.py              busca léxica BM25, opcional
-  carga.py               modos de carga: total (padrão) ou reduzida (experimental)
-  servico.py             composição das dependências
-  ambiente.py            diagnóstico
-  clientes/              adaptadores: Ollama, Qdrant, UESP, sessão HTTP
-  etapas/                as cinco etapas, uma por módulo
-  interface/             console, menu, CLI, ações compartilhadas
-tests/                   testes com dublês — rodam sem Qdrant nem Ollama
-data/                    artefatos gerados (não versionado)
-docs/                    plano por fases e decisões técnicas
+main.py          ponto de entrada único (menu + CLI)
+src/rag/         o pacote: etapas, camadas, clientes, interface
+marcos/          marcos pedagógicos, em Markdown — ver marcos/LEIA-ME.md
+avaliacao/       gabaritos da avaliação de recuperação
+tests/           testes com dublês — rodam sem Qdrant nem Ollama
+data/            artefatos gerados (não versionado)
+docs/            documentação — ver docs/README.md
 ```
 
-Duas regras sustentam a modularidade, e valem literalmente:
+Módulo a módulo, com as regras de modularidade e o fluxo de uma pergunta, em
+[docs/engenharia/arquitetura.md](docs/engenharia/arquitetura.md).
 
-1. **Nenhum módulo de `etapas/` importa outro módulo de `etapas/`.** Eles se
-   comunicam por artefato em disco, então refazer uma etapa não afeta as demais.
-2. **As etapas dependem de `protocolos.py`, não de `clientes/`.** Trocar Qdrant
-   por outro banco vetorial, ou a UESP pelo acervo do IPF, é escrever uma classe
-   com os mesmos métodos e mudar uma linha em `servico.py`.
-
-É por isso que os testes rodam sem serviço nenhum de pé — e as duas regras não
-dependem de ninguém lembrar delas: `tests/test_estrutura.py` falha se alguma for
-quebrada.
-
-## As três camadas sobre o RAG
+## As camadas sobre o RAG
 
 ```
-pergunta → sessão dialógica → mediação de consulta → ciclo RAG + marco → resposta
+pergunta → memória de conversa → sessão dialógica → mediação de consulta → ciclo RAG + marco → resposta
 ```
 
 **Marco pedagógico.** O que orienta a resposta não está no código: está em
@@ -251,8 +220,8 @@ deliberado: o modo de falha que importa — texto bem articulado e vazio — é
 invisível para métrica textual, e um modelo julgando tende a premiá-lo. Essa
 camada é rubrica humana.
 
-O estado atual das medições está em
-[docs/estado-do-desenvolvimento.md](docs/estado-do-desenvolvimento.md).
+As medições em vigor estão em
+[docs/engenharia/medicoes.md](docs/engenharia/medicoes.md).
 
 ## Configuração
 
@@ -275,6 +244,6 @@ cada valor em vigor.
 python3 -m unittest discover -s tests -t tests
 ```
 
-289 testes, nenhum precisando de Qdrant, Ollama ou rede: as dependências
+346 testes, nenhum precisando de Qdrant, Ollama ou rede: as dependências
 externas entram como dublês (`tests/apoio.py`), o que só é possível porque as
 etapas dependem dos protocolos.

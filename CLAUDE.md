@@ -7,30 +7,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Protótipo da **Fase 2** do projeto IA Freiriana (Instituto Paulo Freire): um pipeline RAG local
 completo — download de corpus → chunking → embedding/indexação → recuperação → geração.
 
-**Onde o desenvolvimento está:** `@docs/estado-do-desenvolvimento.md` — o que está pronto, o que é
-provisório, o que falta e as medições em vigor. É o primeiro doc a ler, e o que atualizar quando
-alguma dessas coisas mudar.
+**Antes de mudar qualquer coisa, leia `docs/roadmap.md`** — o que está pronto, o que é
+provisório, o que falta e em que ordem. Atualize-o quando algum desses estados mudar.
 
-**Mapa dos documentos:** `docs/README.md` (índice, com links entre todos) e `docs/arquitetura.md`
-(como o código se organiza, para pessoas). Ao criar um documento em `docs/`, acrescente-o ao índice
-e abra-o com a linha de navegação `> [Índice dos documentos](README.md) · ...`, como os demais.
+**As diretrizes valem para toda mudança** — modularidade, código, documentação, medição e dados.
+Estão em `docs/diretrizes.md`, importadas aqui:
 
-O plano por fases está em `docs/`. Leia sob demanda, não preventivamente:
-`@docs/00-plano-geral-implementacao.md`
+@docs/diretrizes.md
+
+**Mapa dos documentos:** `docs/README.md` é o índice. `docs/plano/` é o plano institucional por
+fases (leia sob demanda, não preventivamente; comece por `docs/plano/00-plano-geral-implementacao.md`),
+`docs/engenharia/` tem a arquitetura e o caderno de medições, `docs/acervo/` trata do acervo real.
+Ao criar um documento, ponha-o na pasta da função dele, acrescente-o ao índice e abra-o com a
+linha de navegação `> [Índice dos documentos](...) · ...`, como os demais. Antes de criar, veja se
+o conteúdo não cabe num documento existente (diretriz 3.4).
 
 **O corpus UESP é descartável.** `data/corpus_uesp/` (lore de Elder Scrolls) existe só para
 exercitar o pipeline com volume real enquanto o acervo do Centro de Referência Paulo Freire não
 está pronto (Fase 1). Ao trocar para o corpus real, muda a coleção (`uesp_lore` → `corpus_ipf`) e
 o módulo de download — não a arquitetura. Não trate a lore como domínio do projeto.
 
-## Idioma do código
+## Idioma
 
-**Todo o código é escrito em português brasileiro** — nomes de função, variáveis, campos de
-dataclass, docstrings, comentários e saída de `print`. Isso é deliberado e 100% consistente.
-Ao escrever ou editar código aqui, mantenha pt-BR (`buscar`, `montar_prompt`, `NOME_COLECAO`,
-`titulo_pagina`), nunca inglês.
-
-As mensagens ao usuário nesta conversa também em português.
+Código em português brasileiro (diretriz 2.1): `buscar`, `montar_prompt`, `NOME_COLECAO`,
+`titulo_pagina` — nunca inglês. As mensagens ao usuário nesta conversa também em português.
 
 ## Ponto de entrada único
 
@@ -161,12 +161,12 @@ artefatos de cada etapa. É o primeiro comando a rodar diante de qualquer erro.
 ## Marco pedagógico
 
 O marco é **dado versionado carregado em tempo de execução, nunca prompt no código**
-(`docs/fase-0-desenho-e-contratos.md` §3.5). Vive em `marcos/*.md`, em Markdown com frontmatter,
+(`docs/plano/fase-0-desenho-e-contratos.md` §3.5). Vive em `marcos/*.md`, em Markdown com frontmatter,
 e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução para o comitê.
 
 - `generico` é o ativo por padrão: serve ao corpus descartável e não tem valor pedagógico.
 - `freiriano` é **esqueleto**, `versao: 0`. A redação é do comitê pedagógico, não de
-  programadores (`docs/fase-2-prototipo.md` §4.6). **Não escreva o conteúdo dele.** Se faltar
+  programadores (`docs/plano/fase-2-prototipo.md` §4.6). **Não escreva o conteúdo dele.** Se faltar
   alguma seção estrutural, acrescente a seção com a pergunta que ela precisa responder.
 - Três seções alimentam camadas diferentes: `Decomposição` orienta a mediação, `Triagem` e
   `Problematização` orientam a sessão. As demais entram no prompt da resposta, e uma seção nova
@@ -178,7 +178,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 - **`montar_prompt()` em `etapas/geracao.py` é o caminho sem marco**, usado só quando
   `marco.ativo` está vazio. O caminho normal é `montador_do_marco()`. Não "melhore" o texto
   genérico dali: comportamento se ajusta editando `marcos/*.md`, que é o ponto todo.
-- **A avaliação mede recuperação, não geração — e isso é deliberado.** `docs/fase-3` §7 separa as
+- **A avaliação mede recuperação, não geração — e isso é deliberado.** `docs/plano/fase-3` §7 separa as
   duas porque "recuperação ruim e geração ruim têm correções opostas". A qualidade da resposta é
   rubrica humana (§5), e LLM como juiz premia o "freirês" que deveria pegar (§8). Não acrescente
   métrica automática de qualidade textual a `avaliacao.py`.
@@ -186,7 +186,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   gerar texto; o orçamento de contexto pode descartar trechos depois. Conferido: em `k = 8`,
   `k = 12` e nas políticas dinâmicas, zero dos 40 casos sofrem corte, então os números batem. Em
   `k = 20`, dois casos são cortados. Ao mexer em `k`, em `num_ctx` ou no tamanho do marco, refaça
-  essa conferência — está descrita em `docs/estado-do-desenvolvimento.md`.
+  essa conferência — está descrita em `docs/engenharia/medicoes.md`.
 - **O gabarito de `avaliacao/casos.jsonl` mede o avaliador junto com o sistema.** Já houve um
   defeito real: as páginas esperadas foram escritas do modelo mental do domínio, ignorando as
   páginas-índice do acervo (`Lore:Races`, `Lore:Religions`), e seis casos cobravam a página
@@ -200,7 +200,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   Trecho relevante e irrelevante têm a mesma faixa de score (medianas 0,552 e 0,551), e valores
   altos o bastante para filtrar deixam perguntas sem resultado nenhum (dez de quarenta em 0,60).
   A alternativa que funciona é `busca.limiar_relativo`, relativo ao topo de cada pergunta —
-  desligada por padrão, medida em `docs/estado-do-desenvolvimento.md`.
+  desligada por padrão, medida em `docs/engenharia/medicoes.md`.
 - **A mediação decompõe pergunta composta, e só isso.** Empata em recall com a busca direta e
   ganha 1 ponto de cobertura, a ~9× o tempo. Traduzir para o idioma do acervo é capacidade
   existente (`idioma_do_acervo` no frontmatter do marco), hoje sem nenhum marco que a declare.
@@ -263,7 +263,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   **Não suba `chunking.tamanho_maximo` sem subir `reordenacao.tamanho_maximo`**: o reordenador lê
   512 tokens por par, e acima de ~2000 caracteres a cauda some do julgamento. **Regra que sai
   disso: toda mudança que invalida o índice espera pela próxima reindexação obrigatória, e todas
-  entram juntas** — os caminhos e a ordem estão em `docs/recorte-de-conteudo-caminhos.md`.
+  entram juntas** — os caminhos e a ordem estão em `docs/roadmap.md` §5.
 - **`DIMENSAO_VETOR` tem que bater com a saída do modelo de embedding.** Isso agora é
   *verificado antes* de qualquer processamento (`garantir_colecao`), com erro explicado — não é
   mais o modo de falha silencioso que era. Ao trocar o modelo, use `indexar --recriar`.
@@ -279,7 +279,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   o estresse que se quer evitar. Teto de vazão (estilo FPS) também foi medido e rejeitado:
   briga com o governador da GPU. E o limitador é **um só por processo**, segurando lock
   durante a pausa; pausa por thread não limita nada com 4 workers. Números em
-  `docs/estado-do-desenvolvimento.md`. Há um efeito em aberto (picos em execução longa).
+  `docs/engenharia/medicoes.md`. Há um efeito em aberto (picos em execução longa).
 - **Quem esquenta a CPU no embedding é o `llama-server`, não o app** — ~4 núcleos em
   espera ativa pela GPU. Duas threads (o que a carga reduzida manda) cortam para ~1,5 núcleo
   sem perder vazão (medido no embedding; na geração, não).
