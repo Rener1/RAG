@@ -35,7 +35,7 @@
 
 # Corte dos documentos em trechos.
 [chunking]
-# estrategia = "paragrafo"
+# estrategia = "paragrafo_agrupado"
 # tamanho_minimo = 60
 # tamanho_maximo = 2000
 
@@ -51,7 +51,7 @@
 # Banco vetorial. `colecao` é o que muda ao trocar de corpus.
 [vetorial]
 # url = "http://localhost:6333"
-# colecao = "uesp_lore"
+# colecao = "uesp_lore_agrupado_2000"
 # timeout = 60
 
 # Recuperação.

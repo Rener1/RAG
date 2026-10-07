@@ -3,7 +3,7 @@ nome: Marco genérico de protótipo
 versao: 1
 autoria: equipe técnica — provisório, não é o marco pedagógico
 data: 2026-08-29
-colecao_recomendada: uesp_lore
+colecao_recomendada: uesp_lore_agrupado_2000
 idioma_do_acervo: en
 problematizar: sim
 ---

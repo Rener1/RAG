@@ -99,7 +99,9 @@ class TestEtapaCompleta(unittest.TestCase):
             (corpus / "Doc_A.txt").write_text(f"# Lore:A\n\n{'a' * 80}\n\n{'b' * 80}", encoding="utf-8")
             saida = Path(pasta) / "chunks.jsonl"
 
-            resultado = chunking.executar(ConfigChunking(), corpus, saida)
+            # Estratégia fixada: o teste é de proveniência e índice, e precisa de
+            # um chunk por parágrafo — o agrupado padrão juntaria os dois.
+            resultado = chunking.executar(ConfigChunking(estrategia="paragrafo"), corpus, saida)
 
             self.assertEqual(resultado.processados, 2)
             linhas = [json.loads(linha) for linha in saida.read_text(encoding="utf-8").splitlines()]

@@ -29,7 +29,7 @@ Cada uma consome a saída da anterior. Rode uma de cada vez e confira a saída a
 |---|---------|--------|-------|
 | 1 | `python3 main.py baixar` | `data/corpus_uesp/*.txt` | rede, ~9k páginas, **demorado** |
 | 2 | `python3 main.py chunking` | `data/chunks.jsonl` (~50 MB) | segundos |
-| 3 | `python3 main.py indexar` | coleção `uesp_lore` no Qdrant | **muito demorado** — GPU/CPU local |
+| 3 | `python3 main.py indexar` | coleção `uesp_lore_agrupado_2000` no Qdrant | **muito demorado** — GPU/CPU local |
 | 4 | `python3 main.py buscar "pergunta"` | trechos recuperados | segundos |
 | 5 | `python3 main.py perguntar "pergunta"` | resposta gerada | ~1 min por pergunta |
 
@@ -45,7 +45,8 @@ Rode as etapas 1 e 3 em background (`run_in_background`) e acompanhe: ambas most
   índice completo custa segundos, não horas. Use `--recriar` para refazer do zero (necessário ao
   trocar o modelo de embedding), `--sem-retomada` para reprocessar sem apagar.
 - **Chunking sobrescreve `data/chunks.jsonl`.** Com a estratégia padrão a saída é idêntica à
-  anterior; com `--estrategia paragrafo_agrupado` muda, e aí o índice inteiro fica defasado.
+  anterior; com outra `--estrategia` ou outro `--tamanho-maximo` muda, e aí o índice inteiro
+  fica defasado. Para experimentar, use `--chunks OUTRO.jsonl` junto com `--colecao OUTRA`.
 - **Dimensão incompatível é detectada antes de processar**, com mensagem explicando o conserto.
 
 ## Ao terminar

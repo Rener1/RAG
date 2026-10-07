@@ -4,12 +4,12 @@ Etapa 2 — corte dos documentos em trechos.
 Lê os `.txt` do corpus e produz `data/chunks.jsonl`, uma linha por chunk, com
 os metadados de proveniência que permitem citar a fonte lá na geração.
 
-A estratégia de corte é plugável (`ESTRATEGIAS`). A padrão continua sendo o
-corte por parágrafo, e a saída é byte a byte idêntica à da versão anterior do
-projeto — trocar o corte invalidaria o índice já construído, que custa horas
-de processamento para refazer. O corte sensível à estrutura por seção descrito
-em `docs/fase-1-corpus.md` entra aqui como mais uma estratégia, quando for a
-hora, sem mexer no resto.
+A estratégia de corte é plugável (`ESTRATEGIAS`). A padrão é o parágrafo
+agrupado, desde 2026-10-05; o corte por parágrafo simples continua disponível, e
+com ele a saída é byte a byte idêntica à da versão original do projeto. Trocar o
+corte invalida o índice construído com o outro. O corte sensível à estrutura por
+seção descrito em `docs/fase-1-corpus.md` entra aqui como mais uma estratégia,
+quando for a hora, sem mexer no resto.
 """
 
 import json
@@ -117,8 +117,10 @@ def cortar_por_paragrafo_agrupado(corpo: str, config: ConfigChunking) -> Resulta
     isso descarta conteúdo real. Aqui esses parágrafos são agrupados em vez de
     perdidos.
 
-    Não é a padrão: mudar a saída obriga a reindexar o corpus inteiro. Fica
-    disponível para quando a próxima indexação for acontecer de qualquer jeito.
+    É a padrão desde 2026-10-05: com teto de 2000 caracteres, mediu +5 de recall
+    e MRR de 0,60 para 0,75 contra o corte por parágrafo. Recorte maior também
+    leva contexto junto — uma frase de abertura genérica deixa de ser um chunk
+    sozinho que casa com qualquer pergunta ampla.
     """
     paragrafos = [p.strip() for p in re.split(r"\n\s*\n", corpo) if p.strip()]
     teve_gigante = False

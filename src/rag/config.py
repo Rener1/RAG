@@ -91,9 +91,16 @@ class ConfigDownload:
 class ConfigChunking:
     """Corte dos documentos em trechos."""
 
-    estrategia: str = "paragrafo"  # ver rag.etapas.chunking.ESTRATEGIAS
+    # Agrupado desde 2026-10-05: junta parágrafos consecutivos até o teto, em vez
+    # de um chunk por parágrafo. Mediana de ~400 tokens contra ~85, e medido
+    # melhor em tudo — busca direta 90% contra 85% de recall, MRR 0,75 contra
+    # 0,60. "paragrafo" continua disponível; ver docs/estado-do-desenvolvimento.md.
+    estrategia: str = "paragrafo_agrupado"  # ver rag.etapas.chunking.ESTRATEGIAS
     tamanho_minimo: int = 60  # caracteres — abaixo disso o trecho não se sustenta sozinho
-    tamanho_maximo: int = 2000  # acima disso é página de lista/índice; subdivide
+    # No agrupado é o tamanho-alvo do recorte. Não subir sem subir junto
+    # `reordenacao.tamanho_maximo`: o reordenador lê 512 tokens por par, e
+    # acima de ~2000 caracteres a cauda do recorte some do julgamento dele.
+    tamanho_maximo: int = 2000
 
 
 @dataclass
@@ -113,7 +120,9 @@ class ConfigVetorial:
     """Banco vetorial. `colecao` é o que muda ao trocar de corpus."""
 
     url: str = "http://localhost:6333"
-    colecao: str = "uesp_lore"  # corpus real do IPF entraria como outra coleção
+    # Corpus real do IPF entraria como outra coleção. A `uesp_lore` antiga, com o
+    # corte por parágrafo, continua no Qdrant para comparação.
+    colecao: str = "uesp_lore_agrupado_2000"
     timeout: int = 60
 
 
