@@ -49,6 +49,7 @@ python3 main.py --chunks X.jsonl --colecao X indexar   # experimento sem tocar n
 python3 main.py buscar "..."       # só recuperação; --sem-intermediar desliga a mediação
 python3 main.py perguntar "..."    # ciclo RAG completo; --direto pula a problematização
 python3 main.py avaliar --comparar # recall@k com e sem mediação (não gera texto)
+python3 main.py avaliar --conversa # recall dos seguimentos, crus contra reescritos
 python3 main.py acelerador         # qual torch esta máquina precisa (para o build)
 python3 main.py marcos             # marcos pedagógicos disponíveis
 python3 main.py config             # configuração em vigor, com a origem de cada valor
@@ -71,6 +72,7 @@ src/rag/
   marco.py           carrega e valida os marcos
   mediacao.py        IntermediadorDeConsulta — reformula, decompõe e funde (RRF)
   sessao.py          Dialogo — a máquina de estados que problematiza antes de responder
+  conversa.py        Conversa — memória entre perguntas: reescreve o seguimento, leva o histórico ao prompt
   avaliacao.py       recall@k contra o gabarito de avaliacao/casos.jsonl
   acelerador.py      detecta GPU e diz qual build de torch instalar
   lexico.py          BM25 e a fusão dele com a busca densa (desligado por padrão)
@@ -276,6 +278,14 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 - **Quem esquenta a CPU no embedding é o `llama-server`, não o app** — ~4 núcleos em
   espera ativa pela GPU. `carga.threads_de_cpu = 2` corta para ~1,5 núcleo sem perder
   vazão (medido no embedding; na geração, não).
+- **A memória de conversa reescreve antes de buscar, e o risco dela é contaminar.** Um seguimento
+  ("e os Khajiit?") vira pergunta autônoma antes de entrar na sessão e na mediação, e nenhuma
+  camada abaixo sabe que há conversa. O erro caro é puxar para o assunto anterior uma pergunta
+  que mudou de assunto — `avaliacao/casos_conversa.jsonl` tem casos de troca de assunto para
+  pegar isso; ao mexer no prompt de reescrita, rode `avaliar --conversa`. O histórico também
+  entra no orçamento de contexto e tira espaço dos trechos, por isso o teto é baixo. Ele vive
+  só no laço `acoes.acao_conversar` e nunca é gravado: guardar conversa é decisão de retenção
+  de dado pessoal.
 - **Os padrões ficam em `src/rag/config.py`**, não espalhados pelos módulos e não em `.env`. Por
   cima deles entra o `config.toml` (opcional, gitignored), e por cima dele as flags e o menu.
   Ajuste de menu e de flag vale só para aquela execução até ser gravado com `config --salvar`.
@@ -286,7 +296,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-313 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+341 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,

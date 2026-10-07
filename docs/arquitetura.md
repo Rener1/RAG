@@ -20,6 +20,7 @@ pede a um modelo de linguagem que responda **a partir deles**, citando a fonte.
 
 Sobre esse ciclo, três camadas próprias do projeto:
 
+- a **memória de conversa**, que entende um seguimento ("e os Khajiit?") à luz das perguntas anteriores;
 - a **sessão dialógica**, que problematiza antes de responder;
 - a **mediação de consulta**, que decompõe a pergunta;
 - o **marco pedagógico**, que orienta a resposta e fica fora do código.
@@ -33,7 +34,8 @@ Sobre esse ciclo, três camadas próprias do projeto:
                                             │
    ┌────────────────────────────────────────┼────────────────────────────────────┐
    │ PIPELINE DE DADOS (offline)            │  CICLO DE PERGUNTA (online)         │
-   │                                        │                                     │
+   │                                        │  Conversa (conversa.py)             │
+   │                                        │     ↓ seguimento reescrito          │
    │ download → chunking → indexação        │  Dialogo (sessao.py)                │
    │    │          │           │            │     ↓ consulta consolidada          │
    │  .txt    chunks.jsonl   Qdrant ────────┼─→ IntermediadorDeConsulta           │
@@ -87,6 +89,7 @@ src/rag/
   orquestrador.py       MotorRag — recuperação + orçamento de contexto + geração
   mediacao.py           IntermediadorDeConsulta — reformula, decompõe, funde por RRF
   sessao.py             Dialogo — triagem e problematização antes de responder
+  conversa.py           Conversa — memória entre perguntas: reescrita do seguimento e histórico
   marco.py              carrega e valida os marcos pedagógicos
   lexico.py             BM25 e a fusão dele com a busca densa (desligado por padrão)
   avaliacao.py          recall@k, cobertura, MRR e cortes contra o gabarito
@@ -124,6 +127,9 @@ outra tabela.
 ```
 pergunta
   │
+  ├─ Conversa.reescrever ────── só no modo conversa, e só com histórico:
+  │     "e os Khajiit?" → "de onde vêm os Khajiit?"; pergunta que muda de assunto vai intacta
+  │
   ├─ Dialogo.classificar ────── triagem: dúvida factual, exploração ou produto acabado
   │     dúvida factual → segue direto
   │     as outras → Dialogo.problematizar: perguntas de volta, ancoradas numa busca prévia;
@@ -137,13 +143,14 @@ pergunta
   │     embute → busca no Qdrant → [funde com BM25] → [reordena] → decidir_quantidade
   │
   ├─ MotorRag
-  │     descarta o que não cabe na janela do modelo (orçamento de contexto)
-  │     monta o prompt com o marco → Gerador.gerar (streaming)
+  │     descarta o que não cabe na janela do modelo (orçamento de contexto, que
+  │     conta também o histórico da conversa)
+  │     monta o prompt com o marco e a CONVERSA ANTERIOR → Gerador.gerar (streaming)
   │
   └─ interface: mostra as fontes antes da resposta; validar_citacoes confere cada [Fonte N]
 ```
 
-Quatro decisões de desenho nesse caminho:
+Cinco decisões de desenho nesse caminho:
 
 - **As camadas se empilham sem se conhecer.** O `IntermediadorDeConsulta` cumpre o mesmo
   protocolo do `Recuperador` (`RecuperadorDeTrechos`) e o envolve por injeção. O `MotorRag` não
@@ -155,6 +162,13 @@ Quatro decisões de desenho nesse caminho:
 - **O orçamento de contexto mora no `MotorRag`, não no montador do prompt.** A lista de trechos
   mostrada na tela tem de ser a mesma que foi ao modelo; senão a validação de citações aprovaria
   uma fonte que o modelo nunca viu.
+- **A memória de conversa age antes, e não dentro, das outras camadas.** A pergunta
+  reescrita segue o caminho normal, e nenhuma camada abaixo sabe que há conversa. O
+  histórico vive só na memória do processo, no laço de conversa da interface
+  (`acoes.acao_conversar`), e some ao sair. Pergunta avulsa nunca tem memória. A
+  memória da conversa é diferente da memória da sessão dialógica: a sessão junta as
+  respostas da problematização dentro de **uma** pergunta; a conversa liga perguntas
+  diferentes.
 - **A quantidade de trechos é decidida numa função só,** `decidir_quantidade`, usada pela busca
   direta e pela mediação. Já esteve duplicada, e um conserto valeu só num dos lados.
 
@@ -193,6 +207,9 @@ modo que rodar só o chunking não exige Qdrant nem Ollama de pé. Também decid
 - com a mediação ligada, quem reordena é ela, sobre a lista fundida; com ela desligada, é o
   `Recuperador`, e nunca os dois;
 - com o BM25 ligado, o `RecuperadorHibrido` envolve a busca densa;
+- `nova_conversa()` entrega uma `Conversa` nova a cada laço (e a cada `/nova`), ou
+  `None` com a memória desligada. Ela usa o gerador de apoio, como a triagem e a
+  mediação;
 - com a carga limitada (`carga.fracao < 1`), embutidor, reordenador e gerador de apoio são
   embrulhados pelo limitador de [`carga.py`](../src/rag/carga.py), um só para o processo inteiro.
   As etapas recebem a peça embrulhada sem saber disso.
@@ -237,7 +254,8 @@ em tempo de execução e editável pelo comitê sem programar ([instruções](..
 ## 8. Avaliação e operação
 
 - **A avaliação mede só a recuperação** (recall@k, cobertura, MRR e quantos casos o orçamento de
-  contexto cortaria), sem gerar uma linha de texto. A qualidade da resposta é rubrica humana, por
+  contexto cortaria), sem gerar uma linha de texto. `avaliar --conversa` mede a memória de
+  conversa num gabarito próprio de seguimentos, comparando o seguimento cru com o reescrito. A qualidade da resposta é rubrica humana, por
   decisão do plano ([Fase 3](fase-3-avaliacao-e-servidor.md) §5 e §8).
 - **Implantação:** o Qdrant roda em container; o Ollama roda no host, onde a GPU já está
   configurada. A aplicação roda no host ou em container com rede do host. A variante `rag-gpu`

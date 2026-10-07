@@ -2,7 +2,7 @@
 
 > [Índice dos documentos](README.md) · [Arquitetura](arquitetura.md) · [Fase 2 — Protótipo](fase-2-prototipo.md) · [README do repositório](../README.md)
 
-**Última atualização:** 2026-10-07 · 313 testes · commit anterior `837654a`
+**Última atualização:** 2026-10-07 · 341 testes · commit anterior `9fd8491`
 **Padrões em vigor:** `chunking.estrategia = paragrafo_agrupado` (teto 2000) ·
 `vetorial.colecao = uesp_lore_agrupado_2000` · `busca.reordenar = true` (com ela vale `busca.k = 8`;
 `limiar_relativo = 0,90` só atua com `--sem-reordenar`) · `intermediacao.decompor = true` ·
@@ -42,6 +42,7 @@ indicado, ele saiu de validade.
 | Avaliação (camada 1) | `recall@k`, cobertura, MRR e cortes do orçamento de contexto contra gabarito | `avaliacao.py` | 32 |
 | Regras estruturais | as duas regras de modularidade, mecanizadas | `tests/test_estrutura.py` | 3 |
 | Limitador de carga | fração de uso por lote e threads de CPU do Ollama, para poupar o hardware | `carga.py` | 18 |
+| Memória de conversa | reescreve o seguimento como pergunta autônoma e leva as últimas trocas ao prompt | `conversa.py` | 28 |
 
 Interface completa nas três portas (menu, CLI, ações) para tudo acima — não
 existe capacidade alcançável só por uma delas.
@@ -56,6 +57,7 @@ existe capacidade alcançável só por uma delas.
 | `marcos/generico.md` | Ativo por padrão, **sem valor pedagógico** — existe para exercitar o mecanismo | O marco freiriano ficar pronto |
 | Corpus UESP | Descartável, 8896 páginas de lore | Catalogação do acervo do IPF (Fase 1) |
 | `avaliacao/casos.jsonl` | 40 casos escritos pela equipe técnica sobre o corpus descartável | Os 80–150 casos reais do comitê (`fase-3` §4), que vêm do registro de uso do piloto |
+| `avaliacao/casos_conversa.jsonl` | 16 seguimentos escritos pela equipe técnica, 4 deles de troca de assunto | Seguimentos reais, do registro de uso do piloto |
 | Avaliação camada 2 (geração) | **Não existe, e não por esquecimento** | Rubrica humana (`fase-3` §5). `fase-3` §8: LLM como juiz premia o "freirês" que deveria pegar — só pré-filtro, nunca veredito |
 
 ---
@@ -286,6 +288,40 @@ exige subir aquele campo junto (o bge-reranker-v2-m3 aceita mais, a custo de tem
 agrupado (sha256 `47ed4084…`, conferido byte a byte contra `main.py chunking` com
 os padrões novos), e o anterior ficou em `data/chunks_paragrafo.jsonl`. Para
 comparar com o corte antigo: `--colecao uesp_lore --chunks chunks_paragrafo.jsonl`.
+
+### Memória de conversa — o seguimento entendido (2026-10-07)
+
+Antes, cada pergunta do modo conversa chegava sozinha: "e os Khajiit?" ia à busca
+como "e os Khajiit?". Agora, com histórico, uma chamada ao modelo reescreve o
+seguimento como pergunta autônoma antes da busca, e as últimas trocas entram no
+prompt da resposta. Desenho em [arquitetura](arquitetura.md) §4.2.
+
+`python3 main.py avaliar --conversa` · 16 casos de `avaliacao/casos_conversa.jsonl` ·
+mediação + reordenação, `k = 8` · duas rodadas
+
+| O que vai à busca | recall | cobertura | MRR | cortes |
+|---|---|---|---|---|
+| Seguimento cru | 62% | 50–56% | 0,44–0,45 | 0/16 |
+| **Seguimento reescrito** | **94%** | **81–84%** | **0,61–0,62** | 0/16 |
+
+- **+31 pontos de recall**, estável nas duas rodadas. Os casos que mais ganham são
+  os que o cru não achava de jeito nenhum: "o que aconteceu com eles?" → "o que
+  aconteceu com os Falmer?", e "qual a diferença entre os dois?" → "qual a
+  diferença entre os Altmer e os Bosmer?".
+- **Contaminação: zero em 4.** Os quatro casos de troca de assunto ("o que é o
+  Thalmor?" depois dos argonianos) foram à busca intactos, nas duas rodadas.
+- **Uma piora, e não da reescrita:** "o que ele fez em Red Mountain?" virou
+  corretamente "o que Kagrenac fez em Red Mountain?", e mesmo assim a página caiu
+  do 2º para o 4º lugar numa rodada e sumiu do top-8 na outra. A reescrita estava
+  certa; quem oscilou foi a busca. Cobertura e MRR variam entre rodadas pelo mesmo
+  motivo — cada caso vale 6,25 pontos aqui.
+- **Custo:** uma chamada ao modelo por seguimento, ~0,5–1 s com o modelo já
+  carregado. Sem histórico, nenhuma.
+
+**Força da evidência:** 16 casos, escritos pela equipe técnica sem olhar o que o
+buscador devolve. O ganho é grande demais para ser ruído, mas o gabarito é pequeno e
+descartável. A geração com histórico (o "explique o ponto 2") **não é medida** —
+é rubrica humana, como toda qualidade de resposta.
 
 ### Limitador de carga — poupar o hardware de dentro do app (2026-10-05)
 

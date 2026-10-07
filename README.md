@@ -125,8 +125,10 @@ python3 main.py buscar "..." --sem-intermediar # sem reformular a pergunta
 python3 main.py buscar "..." --k-dinamico 0.9 # ajusta o nº de trechos (padrão: 0.9)
 python3 main.py perguntar "o que foi a crise de oblivion?" --k 8
 python3 main.py perguntar "..." --direto      # sem problematizar
-python3 main.py perguntar                     # modo conversa
+python3 main.py perguntar                     # modo conversa, com memória ('/nova' esquece)
+python3 main.py perguntar --sem-memoria       # modo conversa, cada pergunta sozinha
 python3 main.py avaliar --comparar            # recall@k com e sem mediação
+python3 main.py avaliar --conversa            # recall dos seguimentos, crus contra reescritos
 python3 main.py marcos                        # marcos pedagógicos disponíveis
 python3 main.py config                        # configuração e origem de cada valor
 python3 main.py config --salvar               # grava em config.toml
@@ -176,6 +178,7 @@ src/rag/
   marco.py               carrega e valida os marcos pedagógicos
   mediacao.py            reformula e decompõe a pergunta antes da busca
   sessao.py              a máquina de estados que problematiza antes de responder
+  conversa.py            memória entre perguntas do modo conversa
   avaliacao.py           mede recall@k contra o gabarito
   acelerador.py          detecta a GPU e diz qual torch instalar
   lexico.py              busca léxica BM25, opcional
@@ -218,6 +221,12 @@ fica perto de tudo e específico de nada. Antes de embutir, a pergunta é
 reformulada em até três consultas independentes, cada uma é buscada, e os
 rankings se fundem por RRF. As sub-consultas aparecem na tela.
 `--sem-intermediar` desliga, e é assim que se compara com a busca direta.
+
+**Memória de conversa.** No modo conversa (`perguntar` ou `buscar` sem
+pergunta, e o menu), um seguimento como "e os Khajiit?" é reescrito como pergunta
+completa antes da busca — a reescrita aparece na tela — e as últimas trocas entram
+no prompt da resposta. Pergunta que muda de assunto vai intacta. `/nova` esquece o
+que foi dito; `--sem-memoria` desliga. Nada da conversa é gravado em disco.
 
 **Sessão dialógica.** Nem toda demanda deve virar resposta direto. A triagem
 classifica: dúvida factual vai à busca; pedido de produto acabado e exploração
