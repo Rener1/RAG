@@ -15,7 +15,14 @@ from pathlib import Path
 
 from apoio import EmbutidorFalso, GeradorFalso, ReordenadorFalso, RepositorioFalso
 
-from rag.carga import EmbutidorLimitado, GeradorLimitado, LimitadorDeCarga, ReordenadorLimitado
+from rag.carga import (
+    MODOS_DE_CARGA,
+    EmbutidorLimitado,
+    GeradorLimitado,
+    LimitadorDeCarga,
+    ReordenadorLimitado,
+    modo_de_carga,
+)
 from rag.clientes.ollama import ClienteOllama, GeradorOllama
 from rag.config import Config, ConfigEmbedding, ConfigGeracao
 from rag.erros import ErroConfiguracao
@@ -158,9 +165,27 @@ class TestFiacao(unittest.TestCase):
         self.assertNotIsInstance(servico.embutidor, EmbutidorLimitado)
         self.assertNotIsInstance(servico.gerador_de_apoio, GeradorLimitado)
 
+    def test_o_padrao_e_carga_total(self):
+        """O modo total é o comportamento original: nada limitado, nada mandado ao Ollama."""
+        self.assertEqual(Config().carga.modo, "total")
+        total = modo_de_carga("total")
+        self.assertEqual((total.fracao, total.tamanho_lote, total.threads_de_cpu), (1.0, None, 0))
+        self.assertFalse(total.experimental)
+
+    def test_carga_reduzida_e_marcada_como_experimental(self):
+        self.assertTrue(MODOS_DE_CARGA["reduzida"].experimental)
+
+    def test_modo_desconhecido_e_erro_que_lista_os_validos(self):
+        with self.assertRaises(ErroConfiguracao) as contexto:
+            modo_de_carga("meia")
+        self.assertIn("reduzida", contexto.exception.sugestao)
+
+    def test_modo_total_nao_muda_o_lote_da_indexacao(self):
+        self.assertIsNone(Servico(Config()).modo_de_carga.tamanho_lote)
+
     def test_com_limite_as_pecas_compartilham_o_limitador(self):
         config = Config()
-        config.carga.fracao = 0.75
+        config.carga.modo = "reduzida"
         servico = Servico(config)
         self.assertIsInstance(servico.embutidor, EmbutidorLimitado)
         self.assertIsInstance(servico.gerador_de_apoio, GeradorLimitado)
@@ -169,7 +194,7 @@ class TestFiacao(unittest.TestCase):
     def test_a_resposta_final_nao_e_limitada(self):
         """Uma rajada só por pergunta — descansar depois dela não poupa nada."""
         config = Config()
-        config.carga.fracao = 0.5
+        config.carga.modo = "reduzida"
         self.assertNotIsInstance(Servico(config).gerador, GeradorLimitado)
 
     def test_com_limite_a_indexacao_usa_o_lote_menor(self):
@@ -177,7 +202,7 @@ class TestFiacao(unittest.TestCase):
         with tempfile.TemporaryDirectory() as pasta:
             config = Config()
             config.caminhos.dados = Path(pasta)
-            config.carga.fracao = 0.99
+            config.carga.modo = "reduzida"
             with (Path(pasta) / "chunks.jsonl").open("w", encoding="utf-8") as f:
                 for i in range(20):
                     f.write(json.dumps(Chunk(f"d::{i}", f"texto {i}", "d", "D", i).como_dicionario()) + "\n")
@@ -189,7 +214,7 @@ class TestFiacao(unittest.TestCase):
             resultado = servico.indexar()
 
         self.assertEqual(resultado.processados, 20)
-        self.assertEqual(max(len(lote) for lote in falso.chamadas), config.carga.tamanho_lote)
+        self.assertEqual(max(len(lote) for lote in falso.chamadas), MODOS_DE_CARGA["reduzida"].tamanho_lote)
 
 
 class SessaoFalsa:

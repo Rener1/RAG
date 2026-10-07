@@ -10,6 +10,7 @@ efeito numa máquina que tem `config.toml`, sem mensagem nenhuma.
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from apoio import *  # noqa: F401,F403  — põe src/ no sys.path
 
@@ -181,16 +182,22 @@ class TestFlagsGlobais(unittest.TestCase):
         self.assertTrue(self.analisar(["config", "--sem-config"]).sem_config)
 
     def test_carga_e_chunks_valem_nas_duas_posicoes(self):
-        self.assertEqual(self.analisar(["--carga", "0.75", "indexar"]).carga, 0.75)
-        self.assertEqual(self.analisar(["indexar", "--carga", "0.5"]).carga, 0.5)
+        self.assertEqual(self.analisar(["--carga", "reduzida", "indexar"]).carga, "reduzida")
+        self.assertEqual(self.analisar(["indexar", "--carga", "total"]).carga, "total")
         self.assertEqual(self.analisar(["--chunks", "x.jsonl", "indexar"]).chunks, "x.jsonl")
         self.assertEqual(self.analisar(["avaliar", "--chunks", "x.jsonl"]).chunks, "x.jsonl")
 
+    def test_carga_so_aceita_os_dois_modos(self):
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            self.analisar(["--carga", "0.75", "indexar"])
+
     def test_carga_e_chunks_chegam_a_configuracao(self):
         config = Config()
-        argumentos = self.analisar(["--carga", "0.75", "--chunks", "exp.jsonl", "chunking", "--tamanho-maximo", "1000"])
+        argumentos = self.analisar(
+            ["--carga", "reduzida", "--chunks", "exp.jsonl", "chunking", "--tamanho-maximo", "1000"]
+        )
         cli._aplicar_opcoes_globais(argumentos, config)
-        self.assertEqual(config.carga.fracao, 0.75)
+        self.assertEqual(config.carga.modo, "reduzida")
         self.assertEqual(config.caminhos.chunks, config.caminhos.dados / "exp.jsonl")
         self.assertEqual(config.chunking.tamanho_maximo, 1000)
 

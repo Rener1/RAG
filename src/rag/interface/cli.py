@@ -32,7 +32,7 @@ exemplos:
   python3 main.py chunking                 refaz os chunks
   python3 main.py chunking --estrategia paragrafo_agrupado --saida data/experimento.jsonl
   python3 main.py indexar --recriar        reindexa do zero
-  python3 main.py --carga 0.75 indexar     indexa poupando a placa (~90 W em vez de ~300 W)
+  python3 main.py --carga reduzida indexar   poupa a placa — EXPERIMENTAL (ver docs/estado)
   python3 main.py --chunks experimento.jsonl --colecao experimento indexar
   python3 main.py buscar "quem são os argonianos?"
   python3 main.py buscar "..." --sem-intermediar    busca sem reformular a pergunta
@@ -73,10 +73,9 @@ def construir_parser() -> argparse.ArgumentParser:
     )
     globais.add_argument(
         "--carga",
-        type=float,
-        metavar="FRACAO",
+        choices=("total", "reduzida"),
         default=argparse.SUPPRESS,
-        help="limita a carga no hardware: fração do tempo trabalhando (ex.: 0.75; 1 = sem limite)",
+        help="'total' (padrão) usa o hardware sem limite; 'reduzida' (EXPERIMENTAL) descansa entre lotes para poupá-lo",
     )
     globais.add_argument(
         "--config",
@@ -230,7 +229,7 @@ def _aplicar_opcoes_globais(argumentos: argparse.Namespace, config: Config) -> N
     if argumentos.chunks:
         config.caminhos.arquivo_chunks = argumentos.chunks
     if argumentos.carga is not None:
-        config.carga.fracao = argumentos.carga
+        config.carga.modo = argumentos.carga
     if argumentos.marco is not None:
         config.marco.ativo = argumentos.marco
     if getattr(argumentos, "estrategia", None):

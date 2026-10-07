@@ -129,10 +129,17 @@ def acao_chunking(servico: Servico, *, interativo: bool = True, arquivo_saida: P
 
 
 def _avisar_carga(servico: Servico) -> None:
-    """Diz que a carga está limitada — senão o tempo maior parece defeito."""
-    fracao = servico.config.carga.fracao
-    if fracao < 1:
-        console.detalhe(f"  Carga limitada a {fracao:.0%} do tempo (carga.fracao) — mais lento, mais frio.")
+    """Diz que a carga está reduzida, e que isso é experimental.
+
+    Sem o aviso, o tempo maior parece defeito; sem o "experimental", parece
+    garantia — e em execução longa ele já falhou em segurar a potência.
+    """
+    modo = servico.modo_de_carga
+    if modo.experimental:
+        console.aviso(
+            f"Carga {modo.nome} (EXPERIMENTAL): descansa {1 - modo.fracao:.0%} do tempo entre lotes. "
+            "Mais lento; em execução longa já falhou em segurar a potência."
+        )
 
 
 def _relatar_descanso(servico: Servico) -> None:

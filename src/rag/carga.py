@@ -1,6 +1,11 @@
 """
 Limitador de carga — o equivalente, para o pipeline, a um limitador de quadros.
 
+Dois modos em `carga.modo` (`--carga`): **`total`**, o padrão, é o comportamento
+original, sem limite; **`reduzida`** é o que este módulo implementa, e é
+**experimental** (ver "Em aberto" abaixo). Os parâmetros de cada modo estão em
+`MODOS_DE_CARGA` e não são configuráveis um a um, de propósito.
+
 O objetivo é **poupar o hardware**, não liberar a máquina para outra tarefa. E
 isso não se faz baixando o clock por fora (power cap, perfil da placa): é o app
 que consome menos, e o governador de energia da própria GPU responde baixando
@@ -33,7 +38,7 @@ reordenador e gerador de apoio, e serializa o trabalho que passa por ele. Uma
 pausa por thread não funciona: com quatro workers a 50 % cada, o descanso de um
 coincide com o trabalho dos outros e a GPU fica ocupada quase o tempo todo.
 
-**Em aberto:** numa indexação real de 64 min, a placa ficou em ~80 W nos
+**Em aberto — por isso experimental:** numa indexação real de 64 min, a placa ficou em ~80 W nos
 primeiros 25 min e depois subiu para 200–250 W, com o limitador cumprindo a
 proporção. Não reproduziu em execução curta. Ver `docs/estado-do-desenvolvimento.md`.
 
@@ -45,9 +50,43 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 from .erros import ErroConfiguracao
 from .modelos import TrechoRecuperado
+
+
+@dataclass(frozen=True, slots=True)
+class ModoDeCarga:
+    """O que cada modo de `carga.modo` liga. Fixo de propósito: dois modos, sem botões."""
+
+    nome: str
+    fracao: float  # fração do tempo trabalhando; 1 = sem limitador
+    tamanho_lote: int | None  # lote de embedding na indexação; None = o de `embedding.tamanho_lote`
+    threads_de_cpu: int  # `num_thread` mandado ao Ollama; 0 = o Ollama decide
+    experimental: bool
+
+
+MODOS_DE_CARGA: dict[str, ModoDeCarga] = {
+    # O comportamento original: nada é embrulhado, nada é mandado ao Ollama.
+    "total": ModoDeCarga("total", fracao=1.0, tamanho_lote=None, threads_de_cpu=0, experimental=False),
+    # 75 %: ~16k ch/s, ~90 W, junção até 55 °C em execução curta. Lote 8 dá pausa
+    # mais fina que 16 (pico de 184 W contra 208 W a 50 %). Duas threads de CPU
+    # cortaram o Ollama de 419 % para 149 % de um núcleo no embedding, com a mesma
+    # vazão — na geração, não medido.
+    "reduzida": ModoDeCarga("reduzida", fracao=0.75, tamanho_lote=8, threads_de_cpu=2, experimental=True),
+}
+
+
+def modo_de_carga(nome: str) -> ModoDeCarga:
+    """O modo pelo nome, ou erro que diz quais existem."""
+    try:
+        return MODOS_DE_CARGA[nome.strip().lower()]
+    except KeyError:
+        raise ErroConfiguracao(
+            f"carga.modo desconhecido: '{nome}'.",
+            sugestao=f"Use um destes: {', '.join(MODOS_DE_CARGA)}. O padrão é 'total'.",
+        ) from None
 
 
 class LimitadorDeCarga:
@@ -67,8 +106,8 @@ class LimitadorDeCarga:
     ) -> None:
         if not 0 < fracao <= 1:
             raise ErroConfiguracao(
-                f"carga.fracao precisa estar entre 0 (exclusivo) e 1, e é {fracao}.",
-                sugestao="Use 1 para sem limite, 0.75 para poupar a placa sem perder muito, 0.5 para poupar mais.",
+                f"A fração do limitador precisa estar entre 0 (exclusivo) e 1, e é {fracao}.",
+                sugestao="Os valores válidos estão em MODOS_DE_CARGA.",
             )
         self.fracao = fracao
         self._relogio = relogio

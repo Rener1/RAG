@@ -304,33 +304,20 @@ class ConfigConversa:
 
 @dataclass
 class ConfigCarga:
-    """Limitador de carga — quanto do tempo o pipeline mantém o hardware ocupado.
+    """Quanto o pipeline exige do hardware. Dois modos, e só dois.
 
-    Existe para poupar a placa em trabalho longo (indexação, avaliação), não
-    para liberar a máquina. Depois de cada lote o pipeline descansa uma fração
-    de segundo, e o governador da GPU responde baixando clock e tensão. Medido
-    na RX 9070 XT (ver `rag/carga.py`):
+    - `total` (padrão): o comportamento original, sem limite nenhum.
+    - `reduzida` (**experimental**): descansa uma fração de segundo depois de
+      cada lote, para a GPU baixar clock e tensão, e limita as threads de CPU
+      do Ollama. Os parâmetros estão em `rag.carga.MODOS_DE_CARGA`.
 
-        1.0   sem limite     ~39k ch/s · ~300 W, picos 352 · junção até 79 °C
-        0.75                 ~16k ch/s ·  ~90 W, picos 112 · junção até 55 °C
-        0.5                  ~11k ch/s ·  ~51 W, picos 184 · junção até 57 °C
-
-    O descanso é por lote, e curto de propósito: rajadas de segundos com pausas
-    de segundos dão a mesma média com a placa oscilando entre 48 e 77 °C — ciclo
-    térmico, que é justamente o estresse a evitar.
+    Experimental porque não se comportou bem em execução longa: numa indexação
+    de 64 min, a placa ficou em ~80 W nos primeiros 25 min e depois voltou a
+    200–250 W, sem explicação até agora. Em execução curta, mediu ~90 W contra
+    ~300 W do modo total. Ver `docs/estado-do-desenvolvimento.md`.
     """
 
-    fracao: float = 1.0  # 1 = sem limite; entre 0 e 1 = fração do tempo trabalhando
-    # Lote de embedding enquanto a carga estiver limitada. Lote menor é pausa
-    # mais fina: com 16 a 50 %, o pico foi de 208 W; com 8, de 184 W.
-    tamanho_lote: int = 8
-    # Threads de CPU que o Ollama usa por requisição (`num_thread`). Com o modelo
-    # inteiro na GPU elas só esperam a placa — em espera ativa, ocupando núcleo.
-    # Medido no embedding (Ryzen 7 9800X3D): padrão 419 % de um núcleo, com 2
-    # threads 149 %, **mesma vazão** (30,6k ch/s). 0 = deixa o Ollama decidir.
-    # Mudar o valor faz o Ollama recarregar o modelo uma vez (alguns segundos).
-    # Vale independente de `fracao`: não custa vazão, só poupa a CPU.
-    threads_de_cpu: int = 0
+    modo: str = "total"  # "total" | "reduzida"
 
 
 @dataclass

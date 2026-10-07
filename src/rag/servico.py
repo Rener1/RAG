@@ -15,7 +15,7 @@ from functools import cached_property
 from pathlib import Path
 
 from . import marco as marco_pedagogico
-from .carga import EmbutidorLimitado, GeradorLimitado, LimitadorDeCarga, ReordenadorLimitado
+from .carga import EmbutidorLimitado, GeradorLimitado, LimitadorDeCarga, ModoDeCarga, ReordenadorLimitado, modo_de_carga
 from .clientes import ClienteOllama, ColetorUESP, GeradorOllama, ReordenadorLocal, RepositorioQdrant
 from .config import CONFIG, Config, ConfiguracaoCarregada
 from .conversa import Conversa
@@ -63,19 +63,24 @@ class Servico:
     # ── peças ─────────────────────────────────────────────────────────────
 
     @cached_property
+    def modo_de_carga(self) -> ModoDeCarga:
+        """`total` (padrão) ou `reduzida` (experimental). Nome inválido é erro."""
+        return modo_de_carga(self.config.carga.modo)
+
+    @cached_property
     def limitador(self) -> LimitadorDeCarga | None:
         """Um só para o processo: é o que torna a fração global, e não por peça.
 
-        `None` com `carga.fracao = 1` — sem limite, nada é embrulhado e o
-        caminho é exatamente o de antes.
+        `None` no modo total — nada é embrulhado e o caminho é exatamente o
+        original.
         """
-        if self.config.carga.fracao == 1:
+        if self.modo_de_carga.fracao >= 1:
             return None
-        return LimitadorDeCarga(self.config.carga.fracao)
+        return LimitadorDeCarga(self.modo_de_carga.fracao)
 
     @cached_property
     def embutidor(self) -> Embutidor:
-        cliente = ClienteOllama(self.config.embedding, self.config.carga.threads_de_cpu)
+        cliente = ClienteOllama(self.config.embedding, self.modo_de_carga.threads_de_cpu)
         return EmbutidorLimitado(cliente, self.limitador) if self.limitador else cliente
 
     @cached_property
@@ -88,7 +93,7 @@ class Servico:
 
     @cached_property
     def gerador(self) -> GeradorOllama:
-        return GeradorOllama(self.config.geracao, self.config.carga.threads_de_cpu)
+        return GeradorOllama(self.config.geracao, self.modo_de_carga.threads_de_cpu)
 
     @cached_property
     def gerador_de_apoio(self) -> Gerador:
@@ -100,7 +105,7 @@ class Servico:
         que é exatamente o que não se quer numa busca.
         """
         gerador = GeradorOllama(
-            replace(self.config.geracao, temperatura=0.0, streaming=False), self.config.carga.threads_de_cpu
+            replace(self.config.geracao, temperatura=0.0, streaming=False), self.modo_de_carga.threads_de_cpu
         )
         # Limitado só este, e não o `gerador`: aqui são chamadas curtas e em
         # série (uma por caso na avaliação); a resposta final é uma rajada só.
@@ -263,8 +268,8 @@ class Servico:
         # Com a carga limitada, lote menor: a pausa vem depois de cada lote, e
         # lote menor é pausa mais fina — menos tempo em clock alto de uma vez.
         config_embedding = self.config.embedding
-        if self.limitador:
-            config_embedding = replace(config_embedding, tamanho_lote=self.config.carga.tamanho_lote)
+        if self.modo_de_carga.tamanho_lote is not None:
+            config_embedding = replace(config_embedding, tamanho_lote=self.modo_de_carga.tamanho_lote)
         return etapa_indexacao.executar(
             config_embedding,
             self.embutidor,

@@ -111,11 +111,9 @@
 # turnos_no_prompt = 2
 # caracteres_por_resposta = 600
 
-# Limitador de carga — quanto do tempo o pipeline mantém o hardware ocupado.
+# Quanto o pipeline exige do hardware. Dois modos, e só dois.
 [carga]
-# fracao = 1.0
-# tamanho_lote = 8
-# threads_de_cpu = 0
+# modo = "total"
 
 # Marco pedagógico. O conteúdo mora em `marcos/*.md`, versionado no git.
 [marco]
