@@ -182,7 +182,7 @@ src/rag/
   avaliacao.py           mede recall@k contra o gabarito
   acelerador.py          detecta a GPU e diz qual torch instalar
   lexico.py              busca léxica BM25, opcional
-  carga.py               limitador de carga do hardware (--carga)
+  carga.py               modos de carga: total (padrão) ou reduzida (experimental)
   servico.py             composição das dependências
   ambiente.py            diagnóstico
   clientes/              adaptadores: Ollama, Qdrant, UESP, sessão HTTP

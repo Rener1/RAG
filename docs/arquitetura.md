@@ -210,7 +210,7 @@ modo que rodar só o chunking não exige Qdrant nem Ollama de pé. Também decid
 - `nova_conversa()` entrega uma `Conversa` nova a cada laço (e a cada `/nova`), ou
   `None` com a memória desligada. Ela usa o gerador de apoio, como a triagem e a
   mediação;
-- com a carga limitada (`carga.fracao < 1`), embutidor, reordenador e gerador de apoio são
+- no modo de carga `reduzida` (experimental; o padrão é `total`), embutidor, reordenador e gerador de apoio são
   embrulhados pelo limitador de [`carga.py`](../src/rag/carga.py), um só para o processo inteiro.
   As etapas recebem a peça embrulhada sem saber disso.
 
@@ -260,9 +260,10 @@ em tempo de execução e editável pelo comitê sem programar ([instruções](..
 - **Implantação:** o Qdrant roda em container; o Ollama roda no host, onde a GPU já está
   configurada. A aplicação roda no host ou em container com rede do host. A variante `rag-gpu`
   traz o torch para o reordenador. Os detalhes estão no [README](../README.md#rodando-em-container).
-- **Carga no hardware:** `--carga F` descansa uma fração do tempo depois de cada lote, e
-  `carga.threads_de_cpu` limita as threads do Ollama. As medições e um efeito ainda não explicado
-  estão no [estado](estado-do-desenvolvimento.md).
+- **Carga no hardware:** dois modos. `--carga total`, o padrão, é o comportamento original.
+  `--carga reduzida` é **experimental**: descansa uma fração do tempo depois de cada lote e
+  limita as threads de CPU do Ollama. As medições, e o efeito ainda não explicado que o mantém
+  experimental, estão no [estado](estado-do-desenvolvimento.md).
 
 ---
 

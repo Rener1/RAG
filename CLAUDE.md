@@ -44,7 +44,7 @@ python3 main.py                    # menu
 python3 main.py ambiente           # diagnóstico (use antes de investigar qualquer falha)
 python3 main.py chunking           # --saida OUTRO.jsonl para não destruir o chunks.jsonl indexado
 python3 main.py indexar            # retoma de onde parou; --recriar para refazer
-python3 main.py --carga 0.75 indexar   # poupa o hardware: descansa 25% do tempo, por lote
+python3 main.py --carga reduzida indexar   # EXPERIMENTAL: poupa o hardware; o padrão é --carga total
 python3 main.py --chunks X.jsonl --colecao X indexar   # experimento sem tocar no índice padrão
 python3 main.py buscar "..."       # só recuperação; --sem-intermediar desliga a mediação
 python3 main.py perguntar "..."    # ciclo RAG completo; --direto pula a problematização
@@ -114,7 +114,7 @@ Cada etapa consome a saída da anterior:
 ```
 download    → data/corpus_uesp/*.txt   (~9k páginas, demorado)
 chunking    → data/chunks.jsonl
-indexacao   → coleção uesp_lore_agrupado_2000 no Qdrant   (~17 min na GPU; ~35 com --carga 0.75)
+indexacao   → coleção uesp_lore_agrupado_2000 no Qdrant   (~17 min na GPU; ~35 com --carga reduzida)
 recuperacao → trechos
 geracao     → resposta
 ```
@@ -269,6 +269,11 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   mais o modo de falha silencioso que era. Ao trocar o modelo, use `indexar --recriar`.
 - **A indexação retoma por padrão.** Chunks já indexados são pulados (consulta por `uuid5` do
   `chunk_id`), então repetir a etapa custa segundos em vez de horas. `--sem-retomada` desliga.
+- **A carga tem dois modos, e só dois: `total` (padrão, o comportamento original) e
+  `reduzida` (EXPERIMENTAL).** Os parâmetros do reduzido ficam fixos em
+  `carga.MODOS_DE_CARGA` (fração 0,75, lote 8, 2 threads de CPU no Ollama), sem botão para
+  cada um — foi pedido assim, simples. Não promova o reduzido a padrão nem tire o
+  "experimental" antes de explicar os picos de 200–250 W da indexação longa.
 - **O limitador de carga descansa por lote, e curto de propósito.** Rajada de segundos
   com pausa de segundos dá a mesma média com a placa oscilando 48↔77 °C — ciclo térmico,
   o estresse que se quer evitar. Teto de vazão (estilo FPS) também foi medido e rejeitado:
@@ -276,8 +281,8 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   durante a pausa; pausa por thread não limita nada com 4 workers. Números em
   `docs/estado-do-desenvolvimento.md`. Há um efeito em aberto (picos em execução longa).
 - **Quem esquenta a CPU no embedding é o `llama-server`, não o app** — ~4 núcleos em
-  espera ativa pela GPU. `carga.threads_de_cpu = 2` corta para ~1,5 núcleo sem perder
-  vazão (medido no embedding; na geração, não).
+  espera ativa pela GPU. Duas threads (o que a carga reduzida manda) cortam para ~1,5 núcleo
+  sem perder vazão (medido no embedding; na geração, não).
 - **A memória de conversa reescreve antes de buscar, e o risco dela é contaminar.** Um seguimento
   ("e os Khajiit?") vira pergunta autônoma antes de entrar na sessão e na mediação, e nenhuma
   camada abaixo sabe que há conversa. O erro caro é puxar para o assunto anterior uma pergunta
@@ -296,7 +301,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-341 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+346 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,

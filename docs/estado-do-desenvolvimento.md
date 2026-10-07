@@ -2,7 +2,7 @@
 
 > [Índice dos documentos](README.md) · [Arquitetura](arquitetura.md) · [Fase 2 — Protótipo](fase-2-prototipo.md) · [README do repositório](../README.md)
 
-**Última atualização:** 2026-10-07 · 341 testes · commit anterior `9fd8491`
+**Última atualização:** 2026-10-07 · 346 testes · commit anterior `9fd8491`
 **Padrões em vigor:** `chunking.estrategia = paragrafo_agrupado` (teto 2000) ·
 `vetorial.colecao = uesp_lore_agrupado_2000` · `busca.reordenar = true` (com ela vale `busca.k = 8`;
 `limiar_relativo = 0,90` só atua com `--sem-reordenar`) · `intermediacao.decompor = true` ·
@@ -41,7 +41,7 @@ indicado, ele saiu de validade.
 | Janela de contexto | `num_ctx` explícito e orçamento de trechos | `geracao.py`, `orquestrador.py` | 17 |
 | Avaliação (camada 1) | `recall@k`, cobertura, MRR e cortes do orçamento de contexto contra gabarito | `avaliacao.py` | 32 |
 | Regras estruturais | as duas regras de modularidade, mecanizadas | `tests/test_estrutura.py` | 3 |
-| Limitador de carga | fração de uso por lote e threads de CPU do Ollama, para poupar o hardware | `carga.py` | 18 |
+| Modos de carga | `total` (padrão, original) e `reduzida` (**experimental**: pausa por lote e threads de CPU do Ollama limitadas) | `carga.py` | 23 |
 | Memória de conversa | reescreve o seguimento como pergunta autônoma e leva as últimas trocas ao prompt | `conversa.py` | 28 |
 
 Interface completa nas três portas (menu, CLI, ações) para tudo acima — não
@@ -239,18 +239,18 @@ Está fechado para o corpus atual — mas a verificação é do par modelo+corpu
 precisa ser refeita ao trocar qualquer um dos dois.
 
 **Reindexar não custa mais horas.** Com o embedding na GPU, o corpus inteiro (38 M
-caracteres) leva ~17 min sem limite e ~30–35 min com `--carga 0.75`. Medido ao
+caracteres) leva ~17 min sem limite e ~30–35 min em carga reduzida (fração 0,75). Medido ao
 indexar as coleções abaixo.
 
 ### Tamanho do recorte — agrupado de 2000 vence (2026-10-05)
 
 `paragrafo_agrupado` junta parágrafos consecutivos até o teto, em vez de descartar
-os curtos. Três coleções, mesmo gabarito, mesma configuração (`--carga 0.75`, no
+os curtos. Três coleções, mesmo gabarito, mesma configuração (carga reduzida, fração 0,75, no
 container com GPU para o reordenador):
 
 ```bash
 python3 main.py --chunks chunks_agrupado_2000.jsonl chunking --estrategia paragrafo_agrupado --tamanho-maximo 2000
-python3 main.py --carga 0.75 --chunks chunks_agrupado_2000.jsonl --colecao uesp_lore_agrupado_2000 indexar
+python3 main.py --carga reduzida --chunks chunks_agrupado_2000.jsonl --colecao uesp_lore_agrupado_2000 indexar
 python3 main.py --chunks chunks_agrupado_2000.jsonl --colecao uesp_lore_agrupado_2000 avaliar --comparar
 ```
 
@@ -325,9 +325,15 @@ descartável. A geração com histórico (o "explique o ponto 2") **não é medi
 
 ### Limitador de carga — poupar o hardware de dentro do app (2026-10-05)
 
-`[carga] fracao` e `--carga F`. Depois de cada lote o pipeline descansa
-`duração × (1/F − 1)`, num limitador só para o processo inteiro (embutidor,
-reordenador e gerador de apoio). Medido na RX 9070 XT lendo `freq1_input`,
+**Exposto como dois modos desde 2026-10-07:** `--carga total` (padrão, o
+comportamento original) e `--carga reduzida` (**experimental**, por causa do efeito
+"em aberto" abaixo). O reduzido fixa fração 0,75, lote 8 e 2 threads de CPU no
+Ollama (`carga.MODOS_DE_CARGA`). As medições desta seção são anteriores a isso: foram
+feitas com a fração configurável, e as indexações longas em 0,75 e lote 8 **com as
+threads do Ollama no padrão**.
+
+Depois de cada lote o pipeline descansa `duração × (1/F − 1)`, num limitador só
+para o processo inteiro (embutidor, reordenador e gerador de apoio). Medido na RX 9070 XT lendo `freq1_input`,
 `power1_average` e `temp2_input` do sysfs, 40–60 s por modo:
 
 | Modo | vazão | clock | potência mediana / máx | junção |
@@ -348,7 +354,7 @@ reordenador e gerador de apoio). Medido na RX 9070 XT lendo `freq1_input`,
 
 **CPU.** Nosso processo usa ~1% de um núcleo; quem esquenta a CPU é o
 `llama-server` do Ollama, com **~4 núcleos em espera ativa** pela GPU.
-`carga.threads_de_cpu` manda `num_thread` em cada requisição:
+O modo reduzido manda `num_thread = 2` em cada requisição:
 
 | `num_thread` | vazão | CPU do Ollama |
 |---|---|---|
@@ -359,7 +365,7 @@ Mesma vazão, um terço da CPU. Fica em 0 (padrão do Ollama) até ser medido na
 geração; mudar o valor faz o Ollama recarregar o modelo uma vez.
 
 **Em aberto — picos na indexação longa.** Nas duas indexações reais com
-`--carga 0.75` (64 min no total), o limitador cumpriu a proporção (descanso de
+fração 0,75 — hoje, o modo reduzido — (64 min no total), o limitador cumpriu a proporção (descanso de
 25% do tempo nas duas), mas a placa ficou em ~80 W só nos primeiros ~25 min; de
 17:28 em diante passou a 200–250 W e junção de 82–88 °C, por 40 min seguidos.
 Não reproduziu em 150 s do mesmo caminho de código (80 W, 51–59 °C), nem havia
@@ -473,7 +479,7 @@ ganhou (ver "Tamanho do recorte").
 
 | # | Item | Destravado por | Invalida o índice? |
 |---|---|---|---|
-| 1 | Entender os picos de 200–250 W na indexação longa com `--carga 0.75` | Indexar com monitor de sysfs e duração de cada lote | não |
+| 1 | Entender os picos de 200–250 W na indexação longa em carga reduzida | Indexar com monitor de sysfs e duração de cada lote | não |
 | 2 | Preencher página e offset nos campos de proveniência do `Chunk` | Troca para o acervo do IPF, que já obriga a reindexar | sim, junto da troca |
 | 3 | **MMR** — diversificação contínua, em vez de teto rígido | `buscar(..., com_vetores=True)` no protocolo | não |
 | 4 | Ligar o **BM25 híbrido** por padrão | Decidir se +2 de recall paga +37% de tempo | não |
