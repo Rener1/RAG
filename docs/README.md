@@ -52,12 +52,14 @@ Nos outros documentos, as fases aparecem abreviadas: "`fase-3` §7" quer dizer a
 ## `acervo/` — como o acervo do Centro de Referência vai entrar
 
 O acervo real é um repositório DSpace cujos metadados não serão alterados. Um documento analisa o
-que eles permitem; o outro propõe o esquema que sai dessa análise.
+que eles permitem; o outro propõe o esquema que sai dessa análise. Um terceiro registra o que a
+revisão encontra no texto que o OCR tirou dos PDFs.
 
 | Documento | Função |
 |---|---|
 | [Limites dos metadados do acervo](acervo/limites-dos-metadados-do-acervo.md) | **Diagnóstico.** O que os metadados do DSpace permitem e impedem, em ordem de gravidade, e o veredito sobre cada funcionalidade do plano |
 | [Esquema de metadados](acervo/esquema-de-metadados.md) | **Proposta (v0.2, não aprovada).** O que cada documento e cada chunk carregam, de onde vem cada campo, e as decisões pendentes com dono (§11) |
+| [Revisão do OCR](acervo/revisao-do-ocr.md) | **Registro em andamento.** Os problemas encontrados no texto que o OCR tirou do acervo, por documento, página e categoria, e os pontos que pedem decisão na reunião |
 
 ## Fora de `docs/`
 
