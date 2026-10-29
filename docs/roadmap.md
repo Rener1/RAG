@@ -64,6 +64,7 @@ O que separa o protótipo do portão G2 → 3 é, sobretudo, trabalho que não �
 | ✅ Duas portas | menu e CLI chamam as mesmas ações | `interface/` |
 | ✅ Container | aplicação em container; variante com GPU para o reordenador | `compose.yaml`, `Containerfile` |
 | ✅ Regras de modularidade testadas | a suíte falha se uma etapa importar outra ou um cliente | `tests/test_estrutura.py` |
+| ✅ Extração do acervo | texto dos PDFs da exportação do DSpace, página a página; OCR só na página sem texto; registro de ferramenta e versão por documento; retoma pelo sha256 e reprocessa por handle. Conferida de ponta a ponta em PDFs de teste, **ainda não no acervo real**, que não chegou | `etapas/extracao.py`, `clientes/pdf.py` |
 | 🟡 Modos de carga | `total` pronto; `reduzida` **experimental** (picos não explicados, §4 item 1) | `carga.py` |
 
 ### Provisório — existe, mas no lugar de outra coisa
@@ -74,6 +75,7 @@ O que separa o protótipo do portão G2 → 3 é, sobretudo, trabalho que não �
 | 🟡 `marcos/generico.md` | ativo por padrão, sem valor pedagógico | ⏸ o marco freiriano ficar pronto |
 | ⏸ `marcos/freiriano.md` | esqueleto, `versao: 0` — só as perguntas de cada seção | ⏸ redação do comitê ([fase 2](plano/fase-2-prototipo.md) §4.6). **Não cabe a programadores** |
 | 🟡 `avaliacao/casos.jsonl` | 40 casos da equipe técnica sobre o corpus descartável | ⏸ os 80–150 casos do comitê ([fase 3](plano/fase-3-avaliacao-e-servidor.md) §4) |
+| 🟡 `extracao.minimo_de_caracteres_por_pagina` = 50 | abaixo disso a página vai ao OCR; valor de partida, sem medição | ⏸ os PDFs do acervo chegarem ([medições](engenharia/medicoes.md#extração-do-acervo--o-limiar-ainda-não-foi-medido)) |
 | 🟡 `avaliacao/casos_conversa.jsonl` | 16 seguimentos da equipe técnica | ⏸ seguimentos reais, do registro de uso |
 
 ---
@@ -117,8 +119,16 @@ Nenhum destes invalida o índice padrão. Os que invalidam esperam a troca de co
 | 4 | **Histórico de avaliações** — gravar cada rodada de `avaliar` com configuração, commit e data, para comparar ao longo do tempo ([fase 3](plano/fase-3-avaliacao-e-servidor.md) §6) | ⬜ | Nada |
 | 5 | Remedir o BM25 híbrido depois do conserto da quantidade, e decidir o padrão (§7) | ⬜ | Rodar `avaliar --comparar --hibrido` |
 | 6 | Avaliação camada 2 — suporte de software à rubrica humana: exportar pergunta, trechos e resposta para quem avalia | ⬜ | ⏸ rubrica do comitê ([fase 3](plano/fase-3-avaliacao-e-servidor.md) §5) |
+| 7 | **Qualidade do texto do acervo.** (1) Medir o OCR atual contra Tesseract com binarização adaptativa e **Kraken direto**, por CER e WER contra transcrição de referência — **portão das demais fases**. Decisão de 2026-10-29: o Kraken é o motor-alvo **desde a extração inicial**, e não só na revisão, para que um mesmo motor e os mesmos modelos sirvam ao pipeline e ao eScriptorium. A medição confirma ou derruba isso; (2) texto posicionado (PAGE XML) como artefato mestre, com idioma por item e limpezas; (3) nota de qualidade por página; (4) integração com o eScriptorium (`main.py revisao enviar/baixar`); (5) gerenciamento de modelos na VRAM por etapa; (6) conferência por modelo visual local, que aponta divergências e nunca substitui o texto | 🟡 fase 1 em andamento | Problemas e decisões no [registro de revisão do OCR](acervo/revisao-do-ocr.md) |
+| 8 | **Ligações por proximidade entre trechos.** Na indexação, cada trecho guarda os M mais próximos de **outros** documentos (sem limiar absoluto de cosseno, que não funciona neste corpus). Na busca, os melhores resultados puxam esses relacionados, o reordenador decide contra a pergunta e o orçamento de contexto limita. Próximo demais vira ligação de **versão** (tradução do mesmo texto), não de relacionado. Camada desligável, medida pela cobertura | ⬜ proposto | O acervo indexado e o gabarito do comitê, para medir |
+| 9 | **Normalização do texto depois do OCR** (pendente, decidido em 2026-10-29). Uma etapa própria entre o OCR e o recorte, cada regra desligável e medida: juntar palavra partida com hífen (`educa-` / `ção`) e sem hífen (`adul` / `to`, só quando a junção está no dicionário e uma das metades não está); juntar as linhas de um parágrafo pela região do texto posicionado; espaços duplos e depois de pontuação colada; linhas de ruído (furos de encadernação que o Kraken lê como letras soltas), poupando o número de página. O texto bruto fica no PAGE XML, então desligar uma regra não exige refazer o OCR. **Corretor ortográfico só como detector** (nota da página) e como juiz das junções, nunca trocando palavra: corrigir automaticamente troca palavra por outra que existe, o erro mais caro do registro. Medição: a mesma normalização aplicada à referência diplomática, porque quebra de linha não é conteúdo | ⬜ pendente | Texto posicionado (item 7, fase 2). A correção só para a busca depende da reunião ([registro](acervo/revisao-do-ocr.md) §3, ponto 5) |
 
 ---
+
+**Decisão (2026-10-23): OCR e revisão ficam neste repositório**, sem projeto à parte, para não
+descentralizar a informação. O eScriptorium é a mesa de trabalho da revisão. A fonte da verdade
+continua em `data/`, e `main.py` continua sendo a porta única. Detalhes no
+[registro](acervo/revisao-do-ocr.md) §6.
 
 ## 5. Na troca para o acervo do IPF — tudo junto, numa reindexação só
 
@@ -129,7 +139,8 @@ janela.
 | # | Item | Muda | Detalhe |
 |---|---|---|---|
 | 1 | Etapa `etapas/catalogo.py`: lê a exportação do DSpace e as tabelas de política, grava `data/catalogo.jsonl` | nova etapa | [esquema](acervo/esquema-de-metadados.md) §8.4, [arquitetura](engenharia/arquitetura.md) §9 |
-| 2 | Download do acervo no lugar do `ColetorUESP`; coleção `corpus_ipf` | etapa, configuração | |
+| 2 | Download do acervo no lugar do `ColetorUESP`; coleção `corpus_ipf` | etapa, configuração | A exportação chega em disco, e `main.py extrair` já tira o texto dela — não invalida nada, porque grava artefato novo |
+| 2b | Chunking lê `data/texto_acervo/` e preenche `pagina` a partir da divisão por `\f` | entrada do chunking | O registro `.json` de cada PDF traz `handle`, `total_de_paginas` e `origem_do_texto` para o `catalogo.py` |
 | 3 | **Filtro de `restricao_uso` dentro da query**, por lista de permitidos — falha fechada | protocolo `RepositorioVetorial` | [esquema](acervo/esquema-de-metadados.md) §8.3 |
 | 4 | `pagina` e `uri` no `TrechoRecuperado`; citação vira link verificável | payload | [esquema](acervo/esquema-de-metadados.md) §8.4 |
 | 5 | `versao_embedding` preenchida em cada chunk | payload | [fase 1](plano/fase-1-corpus.md) §4.8 |
@@ -158,6 +169,10 @@ mais custa num texto de Freire.
   24% dos arquivos têm cabeçalho ([medições § rejeitados](engenharia/medicoes.md#a1-corte-por-seção--adiado)).
 - **A4 — enriquecimento de contexto.** `Chunk.texto_para_embutir()`, usado só na indexação, para
   não sujar a citação mostrada. Sem A1 não há o que prefixar.
+- **Com o texto posicionado** (§4, item 7), A1 e A4 deixam de depender de expressão regular: o
+  parágrafo é a região de texto da página, a seção é a região do tipo título, e carimbo e anotação
+  ficam fora antes do corte. Cada trecho passa a saber as páginas de início e de fim, e a nota de
+  qualidade delas.
 - **A2 — janela deslizante** e **A3 — pai/filho**: depois, e só com medição. A2 aumenta os chunks
   em 25–40% e a redundância no top-k; faz sentido dentro de uma seção, depois de A1. A3 tem o maior
   retorno esperado em obra teórica longa, mas exige mudar o protocolo (`obter_por_ids`) ou guardar
@@ -181,6 +196,7 @@ Itens conhecidos, ainda sem ordem. Viram linhas do §4 quando a fase corresponde
 | 5 | Interface para quem não usa terminal (a atual é menu e CLI) | [fase 5](plano/fase-5-abertura-e-sustentacao.md) §6 |
 | 5 | Rotina de troca do modelo-base pelo harness | [fase 5](plano/fase-5-abertura-e-sustentacao.md) §5.2 |
 | 4 | Ajuste fino (LoRA) — **condicional e provavelmente desnecessário** | [fase 4](plano/fase-4-especializacao.md) §1 |
+| 3–5 | **GraphRAG com relações — opção futura, condicionada a evidência.** Um modelo extrai entidades e relações de cada trecho, o grafo é agrupado em temas e cada tema ganha um resumo. É a única peça que responde perguntas sobre o acervo como um todo ("como a ideia de diálogo muda ao longo da obra?"), o que a busca por trechos não faz. Custa horas de GPU por rodada, e extrair relação é interpretar: os tipos de entidade e de relação precisam do comitê, e a relação nunca vai ao usuário como afirmação, só o trecho de origem. **Revisitar se** o piloto mostrar muitas perguntas de visão geral, ou se a cobertura continuar baixa em perguntas espalhadas em vários documentos mesmo com o item 8 do §4 | decisão de 2026-10-29 |
 
 ---
 
@@ -203,3 +219,8 @@ Medidos e piores, ou tornados desnecessários. O motivo e os números estão em
 - Teto de trechos por documento — favorecido pela forma de medir, não pela qualidade; o MMR é o
   caminho certo.
 - Limitador de carga por rajada longa ou por teto de vazão — ciclo térmico e briga com o governador.
+- Grafo de coocorrência de termos, sem relações (decisão de 2026-10-29, sem medição) — o ganho
+  sobre o que já existe seria marginal: termos raros e nomes próprios já são o caso da busca
+  léxica BM25 (`lexico.py`), "mesmo assunto" é o caso das ligações por proximidade (§4, item 8),
+  e a expansão por termos que aparecem juntos costuma trazer tanto ruído quanto ganho. Volta a ser
+  considerado se a medição no acervo mostrar trechos relevantes que não chegam.
