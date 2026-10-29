@@ -1,0 +1,29 @@
+# Imagem do Kraken, o motor de OCR do eScriptorium, para a avaliação e a extração.
+#
+# Separada da imagem do pipeline porque o Kraken traz torch, torchvision e
+# lightning, e porque roda em Python 3.12: o host está em 3.14, para o qual o
+# Kraken pode não ter rodas. O pipeline chama este container por subprocess,
+# como chama o Tesseract — o código do RAG não importa nada do Kraken.
+#
+#   podman build -t rag-kraken -f Containerfile.kraken .
+#
+# As páginas chegam já rasterizadas pelo host (mesmo pdftoppm do Tesseract), e
+# os modelos ficam fora da imagem, em data/kraken/, montado em /modelos.
+
+FROM docker.io/library/python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_ROOT_USER_ACTION=ignore \
+    XDG_DATA_HOME=/modelos
+
+# torch de CPU antes do Kraken, **na versão exata que o Kraken aceita**. Sem o
+# pino, o índice de CPU entrega um torch mais novo que o Kraken recusa, e o pip
+# o troca pelo torch com CUDA do PyPI: 3,2 GB de bibliotecas NVIDIA numa
+# máquina de GPU AMD (aconteceu no primeiro build, imagem de 6,4 GB).
+RUN pip install --no-cache-dir torch==2.14.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir kraken==7.1.1 \
+    && ! pip list 2>/dev/null | grep -qi '^nvidia-'
+
+WORKDIR /trabalho
+ENTRYPOINT ["kraken"]

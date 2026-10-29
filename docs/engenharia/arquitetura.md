@@ -93,11 +93,12 @@ src/rag/
   marco.py              carrega e valida os marcos pedagógicos
   lexico.py             BM25 e a fusão dele com a busca densa (desligado por padrão)
   avaliacao.py          recall@k, cobertura, MRR e cortes contra o gabarito
+  avaliacao_ocr.py      CER e WER de motores de OCR contra transcrições de referência
   carga.py              limitador de carga do hardware
   ambiente.py           diagnóstico de serviços, modelos e artefatos
   acelerador.py         detecta a GPU e diz qual build do torch instalar
-  etapas/               download · chunking · indexacao · recuperacao · geracao
-  clientes/             Ollama · Qdrant · UESP · reordenador · sessão HTTP com repetição
+  etapas/               download · extracao · chunking · indexacao · recuperacao · geracao
+  clientes/             Ollama · Qdrant · UESP · PDF e OCR · reordenador · sessão HTTP com repetição
   interface/            console · menu · cli · acoes
 tests/                  suíte com dublês — sem serviço nem rede
 data/                   artefatos gerados (não versionados)
@@ -114,6 +115,7 @@ Cada etapa lê o artefato da anterior e grava o seu. Pode ser refeita isoladamen
 | Etapa | Lê | Grava | Notas |
 |---|---|---|---|
 | [`download`](../../src/rag/etapas/download.py) | API MediaWiki da UESP | `data/corpus_uesp/*.txt` | Será substituída para o acervo do IPF (§8) |
+| [`extracao`](../../src/rag/etapas/extracao.py) | exportação do DSpace em pastas por item (`data/acervo_dspace/`) | `data/texto_acervo/<handle>/<arquivo>.txt` e `.json` | Lê a camada de texto do PDF; só a página abaixo do mínimo vai ao OCR, e o OCR só fica se trouxer mais texto. Páginas separadas por `\f`. O `.json` é o registro (origem, ferramenta, versão) e o marcador de pronto: retoma pelo sha256 do original. Ainda não consumida pelo chunking (§9) |
 | [`chunking`](../../src/rag/etapas/chunking.py) | os `.txt` | `data/chunks.jsonl` | Estratégia plugável (`ESTRATEGIAS`). Grava em arquivo temporário e troca no fim: uma interrupção não corrompe o anterior |
 | [`indexacao`](../../src/rag/etapas/indexacao.py) | `chunks.jsonl` | coleção no Qdrant | Retoma de onde parou; confere a dimensão do vetor **antes** de processar; um lote que falha não derruba os outros |
 
@@ -187,6 +189,8 @@ métodos com a mesma forma.
 | `Reordenador` | `reordenar(pergunta, trechos)` | `ReordenadorLocal` (cross-encoder via torch) | `ReordenadorFalso` |
 | `RecuperadorDeTrechos` | `buscar(pergunta, k)` | `Recuperador`, `RecuperadorHibrido`, `IntermediadorDeConsulta` | `RecuperadorFalso` |
 | `ColetorDeCorpus` | listar e baixar documentos | `ColetorUESP` | `ColetorFalso` |
+| `LeitorDePdf` | `textos_das_paginas(pdf)` — a camada de texto existente | `LeitorPoppler` (`pdftotext`) | `LeitorFalso` |
+| `ReconhecedorOptico` | `reconhecer(pdf, paginas)`, `identificacao` | `ReconhecedorOcrmypdf` (OCRmyPDF + Tesseract) | `ReconhecedorFalso` |
 | `MarcoPedagogico` | seções e metadados do marco | `Marco` | `MarcoFalso` |
 
 **Divergência registrada com o plano.** O contrato da
@@ -273,11 +277,26 @@ O desenho está em [esquema de metadados](../acervo/esquema-de-metadados.md) §8
 
 | O quê | Como |
 |---|---|
+| Texto do acervo | **Pronto:** `etapas/extracao.py` (§4.1). Falta o chunking ler `data/texto_acervo/` e preencher `pagina` pela divisão em `\f`. Planejado: texto posicionado (PAGE XML) como mestre, com revisão no eScriptorium ([registro](../acervo/revisao-do-ocr.md) §6, [roadmap](../roadmap.md) §4 item 7) |
 | Fonte do corpus | Etapa nova `etapas/catalogo.py`: lê a exportação do DSpace e as tabelas de política e grava `data/catalogo.jsonl`. O chunking passa a ler esse arquivo. Continua sendo comunicação por disco |
 | Coleção | `uesp_lore_*` → `corpus_ipf`, por configuração |
 | Filtro de restrição de uso | `RepositorioVetorial.buscar` passa a receber filtro, aplicado **dentro** da query e por lista de permitidos. Vazio passa a significar "não classificado", e não classificado não é recuperado |
 | Citação | `pagina` e `uri` no `TrechoRecuperado`; a citação vira link verificável |
 | Recorte | Corte sensível à estrutura, por seção ([roadmap](../roadmap.md#os-caminhos-de-recorte-que-ficam-para-essa-janela), A1) |
+
+**A estratégia de ponta a ponta para o acervo** (decidida em 2026-10-23 a 2026-10-29):
+
+```
+PDF do DSpace → leitura (Kraken como motor-alvo; hoje Tesseract com Sauvola de reserva)
+  → nota de qualidade por página → revisão das piores no eScriptorium → texto posicionado (PAGE XML)
+  → recorte por parágrafo e seção reais → índice (bge-m3, Qdrant)
+  → ligações por proximidade → busca + relacionados + reordenador → resposta com o marco, citando a página
+```
+
+A imagem é sempre a fonte, e o texto serve para achar o documento. Nada que um modelo interprete
+(conferência visual, ligações) chega ao usuário como afirmação: só decide que trecho entra. Fases,
+estado e decisões ficam no [roadmap](../roadmap.md) §4, itens 7 e 8, e §6, e no
+[registro de revisão do OCR](../acervo/revisao-do-ocr.md).
 
 O que **não** muda: as duas regras do §2, os protocolos, a composição e as camadas de sessão,
 mediação e marco.

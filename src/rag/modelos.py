@@ -116,6 +116,14 @@ class Resposta:
 
 
 @dataclass
+class LeituraDoMotor:
+    """O que um motor de OCR leu numa página, para a avaliação do OCR."""
+
+    texto: str
+    confianca_media: float | None = None  # 0–100; só quem informa (o Tesseract direto)
+
+
+@dataclass
 class ResultadoEtapa:
     """Contadores de uma etapa, pra interface relatar sem inventar formato.
 

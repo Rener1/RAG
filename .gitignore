@@ -4,6 +4,17 @@ data/chunks.jsonl
 data/chunks_*.jsonl
 data/qdrant_storage/
 
+# Acervo do IPF e o texto extraído dele — material possivelmente restrito, nunca
+# versionado nem enviado a terceiros (diretrizes 5.2)
+data/acervo_dspace/
+data/texto_acervo/
+# Transcrições de referência e candidatos da avaliação do OCR (texto integral do acervo)
+data/avaliacao_ocr/
+# Banco, imagens e modelos do eScriptorium
+data/escriptorium/
+# Modelos do Kraken (segmentação e reconhecimento), baixados ou treinados no acervo
+data/kraken/
+
 # Configuração desta máquina (URLs, modelos, coleção). O exemplo é versionado.
 config.toml
 

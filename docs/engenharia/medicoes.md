@@ -198,6 +198,45 @@ precisa ser refeita ao trocar qualquer um dos dois.
 caracteres) leva ~17 min sem limite e ~30–35 min em carga reduzida (fração 0,75). Medido ao
 indexar as coleções abaixo.
 
+## Extração do acervo — o limiar ainda não foi medido
+
+`extracao.minimo_de_caracteres_por_pagina` = 50 (letras e dígitos) é **valor de partida**. Ele
+decide que página vai ao OCR, e o certo depende dos PDFs do acervo, que ainda não chegaram. Errar
+para cima custa tempo: página digital curta vai ao OCR, mas o resultado só substitui a camada
+digital quando traz mais texto. Errar para baixo custa texto, porque uma página com camada de
+lixo escapa do OCR.
+
+Como medir quando os PDFs chegarem: rodar `main.py extrair` numa amostra por coleção, comparar
+as páginas listadas em `paginas_ocr` e `paginas_abaixo_do_minimo` dos `.json` com o PDF aberto e
+ajustar. Junto, cronometrar segundos por página de OCR, que ainda não têm número.
+
+O que já foi conferido (2026-10-22, PDFs gerados com Ghostscript, no container
+`podman build --target execucao`):
+
+- OCRmyPDF 16.7 com Tesseract 5.5 e `por`: reconheceu sem erro a acentuação da página rasterizada
+  a 300 dpi.
+- O sidecar junta em **um pedaço só** as páginas puladas em sequência
+  (`[OCR skipped on page(s) 2-3]`). Por isso a numeração é refeita pelos avisos
+  (`clientes/pdf.paginas_do_sidecar`), não pela posição.
+- O `pdftotext` do Poppler 26.01 fecha toda página com `\f`, a última inclusive.
+
+**Página perdida por binarização (2026-10-23, P1 do [registro](../acervo/revisao-do-ocr.md)).**
+No 7891/90109, datilografado em inglês sobre fundo cinza com faixa escura na borda, as páginas 2–12
+saíram vazias. O defeito é do Tesseract, não do pipeline:
+
+| Configuração | Caracteres por página (pp. 2–12) |
+|---|---|
+| Extração padrão (OCRmyPDF, binarização global) | 0 — o Tesseract registra "Too few characters. Skipping this page" |
+| Tesseract direto, página a 300 dpi | 0 |
+| OCRmyPDF com `--tesseract-thresholding sauvola`, `-l por` | 2.251–2.930 |
+| idem, `-l eng` | 2.270–2.942 |
+
+Com a binarização adaptativa (Sauvola) o texto volta, mas o começo das linhas ainda sai com
+ruído. Reproduz com
+`ocrmypdf -l eng --force-ocr --deskew --rotate-pages --tesseract-thresholding sauvola --pages 2-12 --sidecar s.txt --output-type none <pdf> -`.
+Ainda não é padrão: falta medir contra transcrição de referência (CER), o que é a Fase 1 do plano
+do [roadmap](../roadmap.md) §4, item 7.
+
 ## Tamanho do recorte — agrupado de 2000 vence (2026-10-05)
 
 `paragrafo_agrupado` junta parágrafos consecutivos até o teto, em vez de descartar

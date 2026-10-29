@@ -237,3 +237,35 @@ class ColetorFalso:
     def baixar_lote(self, titulos: list[str]) -> dict[str, str]:
         self.lotes_pedidos.append(list(titulos))
         return {t: self.paginas[t] for t in titulos if t in self.paginas}
+
+
+class LeitorFalso:
+    """Camada de texto de mentira: páginas fixas por nome de arquivo, sem Poppler."""
+
+    def __init__(self, paginas_por_arquivo: dict[str, list[str]]) -> None:
+        self.paginas_por_arquivo = paginas_por_arquivo
+        self.lidos: list[str] = []
+
+    def textos_das_paginas(self, caminho: Path) -> list[str]:
+        self.lidos.append(caminho.name)
+        return list(self.paginas_por_arquivo[caminho.name])
+
+
+class ReconhecedorFalso:
+    """OCR de mentira: devolve um texto que diz a página, e guarda o que foi pedido.
+
+    `ilegiveis` são páginas que o OCR "não lê" — voltam vazias, como uma
+    página em branco ou uma digitalização ruim.
+    """
+
+    def __init__(self, ilegiveis: set[int] | None = None) -> None:
+        self.ilegiveis = ilegiveis or set()
+        self.pedidos: list[tuple[str, list[int]]] = []
+
+    @property
+    def identificacao(self) -> dict[str, str]:
+        return {"ferramenta": "ocr-falso", "versao": "0.0", "parametros": "-l por"}
+
+    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, str]:
+        self.pedidos.append((caminho.name, list(paginas)))
+        return {n: "" if n in self.ilegiveis else f"Texto reconhecido da página {n} com acentuação." for n in paginas}

@@ -47,10 +47,32 @@ class ConfigCaminhos:
     # que mantém um experimento coerente: a indexação lê este arquivo, e o
     # índice BM25 também — um par desencontrado busca num acervo e pontua noutro.
     arquivo_chunks: str = "chunks.jsonl"
+    # Exportação do DSpace em pastas por item (Simple Archive Format), relativa
+    # a `dados` ou absoluta. Somente leitura: o pipeline nunca escreve nela.
+    exportacao_acervo: str = "acervo_dspace"
 
     @property
     def corpus(self) -> Path:
         return self.dados / "corpus_uesp"
+
+    @property
+    def exportacao(self) -> Path:
+        return self.dados / self.exportacao_acervo
+
+    @property
+    def avaliacao_ocr(self) -> Path:
+        """Referências e candidatos da avaliação do OCR. Texto integral do acervo: fora do git."""
+        return self.dados / "avaliacao_ocr"
+
+    @property
+    def kraken(self) -> Path:
+        """Modelos do Kraken, baixados ou treinados no acervo. Fora do git."""
+        return self.dados / "kraken"
+
+    @property
+    def texto_acervo(self) -> Path:
+        """Texto extraído dos PDFs do acervo, um `.txt` e um `.json` por PDF."""
+        return self.dados / "texto_acervo"
 
     @property
     def chunks(self) -> Path:
@@ -90,6 +112,31 @@ class ConfigDownload:
     # A etiqueta de identificação é exigência de etiqueta das APIs MediaWiki;
     # sem ela a wiki pode limitar ou bloquear o cliente sem aviso.
     user_agent: str = "IA-Freiriana-RAG/2.0 (protótipo acadêmico; contato via repositório)"
+
+
+@dataclass
+class ConfigExtracao:
+    """Extração de texto dos PDFs do acervo, com OCR das páginas que são só imagem."""
+
+    idioma: str = "por"  # pacote de idioma do Tesseract; "por+eng" para material misto
+    # Abaixo disso a página é tratada como imagem e vai ao OCR. Provisório: o
+    # valor certo depende de como são os PDFs do acervo, e precisa ser medido
+    # quando eles chegarem (docs/engenharia/medicoes.md). Conta só letras e
+    # dígitos, para número de página e lixo de camada de texto não contarem.
+    minimo_de_caracteres_por_pagina: int = 50
+    processos: int = 0  # 0 = todos os núcleos; o paralelismo é por página, dentro do OCR
+
+
+@dataclass
+class ConfigKraken:
+    """Kraken, o motor de OCR do eScriptorium, no container `rag-kraken` (Containerfile.kraken)."""
+
+    imagem: str = "localhost/rag-kraken"
+    # Relativo a `data/kraken`. CATMuS-Print Large (10.5281/zenodo.10592716): impressos
+    # de alfabeto latino em várias línguas, inclusive datilografia. Escolhido por cobrir
+    # as quatro línguas do acervo; baixe com
+    # `podman run --rm -v ./data/kraken:/modelos:Z rag-kraken get 10.5281/zenodo.10592716`.
+    modelo: str = "htrmopo/d96caf7a-122e-5576-ab2b-a246c4e64221/catmus-print-fondue-large.mlmodel"
 
 
 @dataclass
@@ -333,6 +380,8 @@ class Config:
 
     caminhos: ConfigCaminhos = field(default_factory=ConfigCaminhos)
     download: ConfigDownload = field(default_factory=ConfigDownload)
+    extracao: ConfigExtracao = field(default_factory=ConfigExtracao)
+    kraken: ConfigKraken = field(default_factory=ConfigKraken)
     chunking: ConfigChunking = field(default_factory=ConfigChunking)
     embedding: ConfigEmbedding = field(default_factory=ConfigEmbedding)
     vetorial: ConfigVetorial = field(default_factory=ConfigVetorial)

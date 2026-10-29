@@ -11,6 +11,7 @@ alternativa não precisa herdar de nada, só ter os métodos com a mesma forma.
 """
 
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from .modelos import Chunk, TrechoRecuperado
@@ -78,6 +79,33 @@ class ColetorDeCorpus(Protocol):
 
     def baixar_lote(self, titulos: list[str]) -> dict[str, str]:
         """Título → conteúdo bruto, para os títulos que existem."""
+        ...
+
+
+@runtime_checkable
+class LeitorDePdf(Protocol):
+    """Lê a camada de texto que o PDF já tem. Implementação atual: Poppler.
+
+    Não faz OCR: página que é só imagem volta vazia, e é isso que a etapa usa
+    para decidir o que mandar ao `ReconhecedorOptico`.
+    """
+
+    def textos_das_paginas(self, caminho: Path) -> list[str]:
+        """Um texto por página, na ordem do PDF — vazio para página sem texto."""
+        ...
+
+
+@runtime_checkable
+class ReconhecedorOptico(Protocol):
+    """Reconhece texto em páginas de imagem. Implementação atual: OCRmyPDF com Tesseract."""
+
+    @property
+    def identificacao(self) -> dict[str, str]:
+        """Ferramenta, versão e parâmetros — gravados junto de cada documento processado."""
+        ...
+
+    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, str]:
+        """Texto das páginas pedidas (numeradas a partir de 1), e só delas."""
         ...
 
 

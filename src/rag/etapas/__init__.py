@@ -1,9 +1,13 @@
 """
-As cinco etapas do pipeline, uma por módulo.
+As etapas do pipeline, uma por módulo.
 
 A ordem importa — cada etapa consome o artefato da anterior:
 
     download → chunking → indexacao → recuperacao → geracao
+
+`extracao` é a porta de entrada do acervo real: tira o texto dos PDFs da
+exportação do DSpace (`data/texto_acervo/`). Por enquanto nada a consome — o
+chunking ainda lê o corpus de teste.
 
 Nenhum módulo daqui importa outro. A comunicação é por artefato em disco
 (`data/corpus_uesp/`, `data/chunks.jsonl`, coleção no banco vetorial), o que

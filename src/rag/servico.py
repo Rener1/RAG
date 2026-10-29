@@ -15,13 +15,26 @@ from functools import cached_property
 from pathlib import Path
 
 from . import marco as marco_pedagogico
+from .avaliacao_ocr import MotorComReserva, MotorDeOcr
 from .carga import EmbutidorLimitado, GeradorLimitado, LimitadorDeCarga, ModoDeCarga, ReordenadorLimitado, modo_de_carga
-from .clientes import ClienteOllama, ColetorUESP, GeradorOllama, ReordenadorLocal, RepositorioQdrant
+from .clientes import (
+    ClienteOllama,
+    ColetorUESP,
+    GeradorOllama,
+    LeitorPoppler,
+    MotorKraken,
+    MotorOcrmypdf,
+    MotorTesseract,
+    ReconhecedorOcrmypdf,
+    ReordenadorLocal,
+    RepositorioQdrant,
+)
 from .config import CONFIG, Config, ConfiguracaoCarregada
 from .conversa import Conversa
 from .etapas import RelatorProgresso, sem_progresso
 from .etapas import chunking as etapa_chunking
 from .etapas import download as etapa_download
+from .etapas import extracao as etapa_extracao
 from .etapas import indexacao as etapa_indexacao
 from .etapas.geracao import montador_do_marco, montar_prompt
 from .etapas.recuperacao import Recuperador
@@ -30,7 +43,7 @@ from .marco import Marco
 from .mediacao import ConsultaDecomposta, IntermediadorDeConsulta
 from .modelos import ResultadoEtapa
 from .orquestrador import MotorRag
-from .protocolos import Embutidor, Gerador, RecuperadorDeTrechos, Reordenador
+from .protocolos import Embutidor, Gerador, LeitorDePdf, ReconhecedorOptico, RecuperadorDeTrechos, Reordenador
 from .sessao import Dialogo
 
 
@@ -90,6 +103,14 @@ class Servico:
     @cached_property
     def coletor(self) -> ColetorUESP:
         return ColetorUESP(self.config.download)
+
+    @cached_property
+    def leitor_de_pdf(self) -> LeitorDePdf:
+        return LeitorPoppler()
+
+    @cached_property
+    def reconhecedor(self) -> ReconhecedorOptico:
+        return ReconhecedorOcrmypdf(self.config.extracao)
 
     @cached_property
     def gerador(self) -> GeradorOllama:
@@ -240,6 +261,40 @@ class Servico:
     def baixar_corpus(self, progresso: RelatorProgresso = sem_progresso) -> ResultadoEtapa:
         return etapa_download.executar(self.config.download, self.config.caminhos.corpus, self.coletor, progresso)
 
+    def extrair_texto(
+        self,
+        progresso: RelatorProgresso = sem_progresso,
+        *,
+        refazer: bool = False,
+        documentos: list[str] | None = None,
+        pasta_exportacao: Path | None = None,
+        pasta_saida: Path | None = None,
+    ) -> ResultadoEtapa:
+        """Texto dos PDFs do acervo. As pastas desviam do padrão, para experimentar sem tocar nele."""
+        return etapa_extracao.executar(
+            self.config.extracao,
+            pasta_exportacao or self.config.caminhos.exportacao,
+            pasta_saida or self.config.caminhos.texto_acervo,
+            self.leitor_de_pdf,
+            self.reconhecedor,
+            refazer=refazer,
+            documentos=documentos,
+            progresso=progresso,
+        )
+
+    def motores_de_ocr(self) -> dict[str, MotorDeOcr]:
+        """As variantes de OCR que a avaliação compara. O Kraken roda no container `rag-kraken`."""
+        return {
+            "atual": MotorOcrmypdf(self.config.extracao),
+            "tesseract-otsu": MotorTesseract("otsu"),
+            "tesseract-sauvola": MotorTesseract("sauvola"),
+            "tesseract-sauvola-unpaper": MotorTesseract("sauvola", limpar=True),
+            "kraken-catmus": MotorKraken(self.config.kraken, self.config.caminhos.kraken),
+            "tesseract-otsu-reserva-sauvola": MotorComReserva(
+                MotorTesseract("otsu"), MotorTesseract("sauvola"), self.config.extracao.minimo_de_caracteres_por_pagina
+            ),
+        }
+
     def gerar_chunks(
         self,
         progresso: RelatorProgresso = sem_progresso,
@@ -285,6 +340,11 @@ class Servico:
     def contar_documentos(self) -> int:
         pasta: Path = self.config.caminhos.corpus
         return sum(1 for _ in pasta.glob("*.txt")) if pasta.is_dir() else 0
+
+    def contar_textos_extraidos(self, pasta: Path | None = None) -> int:
+        """PDFs já extraídos — o `.json` é o marcador de documento pronto."""
+        pasta = pasta or self.config.caminhos.texto_acervo
+        return sum(1 for _ in pasta.glob("*/*.json")) if pasta.is_dir() else 0
 
     def chunks_existem(self) -> bool:
         return self.config.caminhos.chunks.exists()

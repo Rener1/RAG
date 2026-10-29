@@ -29,6 +29,9 @@ EXEMPLOS = """\
 exemplos:
   python3 main.py                          menu interativo
   python3 main.py ambiente                 diagnóstico do ambiente
+  python3 main.py extrair                  texto dos PDFs do acervo, com OCR onde falta
+  python3 main.py extrair --documento 123456789/42   refaz só um documento
+  python3 main.py avaliar-ocr --gerar todos   taxa de erro de cada motor de OCR contra as referências
   python3 main.py chunking                 refaz os chunks
   python3 main.py chunking --estrategia paragrafo_agrupado --saida data/experimento.jsonl
   python3 main.py indexar --recriar        reindexa do zero
@@ -118,6 +121,22 @@ def construir_parser() -> argparse.ArgumentParser:
     novo_subcomando("ambiente", "diagnostica serviços, modelos e artefatos")
     novo_subcomando("baixar", "etapa 1 — baixa o corpus (demorado)")
 
+    p_extrair = novo_subcomando("extrair", "texto dos PDFs do acervo, com OCR onde falta (demorado)")
+    p_extrair.add_argument("--refazer", action="store_true", help="refaz todos, mesmo os já extraídos")
+    p_extrair.add_argument(
+        "--documento",
+        action="append",
+        metavar="HANDLE",
+        help="extrai só este handle, refazendo-o (repetível)",
+    )
+    p_extrair.add_argument("--exportacao", type=Path, metavar="PASTA", help="outra exportação do DSpace")
+    p_extrair.add_argument(
+        "--saida",
+        type=Path,
+        metavar="PASTA",
+        help="grava em outra pasta, preservando data/texto_acervo",
+    )
+
     p_chunking = novo_subcomando("chunking", "etapa 2 — corta o corpus em trechos")
     p_chunking.add_argument("--estrategia", help="estratégia de corte (paragrafo, paragrafo_agrupado)")
     p_chunking.add_argument("--tamanho-maximo", type=int, metavar="CHARS", help="teto de caracteres por chunk")
@@ -125,6 +144,20 @@ def construir_parser() -> argparse.ArgumentParser:
         "--saida",
         type=Path,
         help="grava em outro arquivo, preservando o chunks.jsonl que corresponde ao índice",
+    )
+
+    p_avaliar_ocr = novo_subcomando("avaliar-ocr", "taxa de erro do OCR contra transcrições de referência")
+    p_avaliar_ocr.add_argument(
+        "--gerar",
+        action="append",
+        metavar="MOTOR",
+        help="roda antes este motor nas páginas (repetível; 'todos' roda todos os locais)",
+    )
+    p_avaliar_ocr.add_argument(
+        "--pagina",
+        action="append",
+        metavar="ID",
+        help="página a gerar, como 7891_90109_FPF_OPF_01_0005_p0003 (repetível; padrão: as que têm referência)",
     )
 
     p_indexar = novo_subcomando("indexar", "etapa 3 — embedding e indexação (muito demorado)")
@@ -324,6 +357,18 @@ def principal(argv: list[str] | None = None) -> int:
             return 0 if acoes.acao_ambiente(servico) else 1
         if comando == "baixar":
             return 0 if acoes.acao_baixar(servico, interativo=sys.stdin.isatty()) else 1
+        if comando == "extrair":
+            sucesso = acoes.acao_extrair(
+                servico,
+                interativo=sys.stdin.isatty(),
+                refazer=argumentos.refazer,
+                documentos=argumentos.documento,
+                pasta_exportacao=argumentos.exportacao,
+                pasta_saida=argumentos.saida,
+            )
+            return 0 if sucesso else 1
+        if comando == "avaliar-ocr":
+            return 0 if acoes.acao_avaliar_ocr(servico, gerar=argumentos.gerar, paginas=argumentos.pagina) else 1
         if comando == "chunking":
             sucesso = acoes.acao_chunking(
                 servico,

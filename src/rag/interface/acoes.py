@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
-from .. import avaliacao
+from .. import avaliacao, avaliacao_ocr
 from .. import config as configuracao
 from .. import marco as marco_pedagogico
 from ..acelerador import arquiteturas_amd
@@ -84,6 +84,133 @@ def acao_baixar(servico: Servico, *, interativo: bool = True) -> bool:
     _relatar(resultado, "páginas salvas")
     console.detalhe(f"  Encontradas {resultado.detalhes.get('titulos_encontrados', 0)} páginas no namespace.")
     return not resultado.houve_falha
+
+
+def acao_extrair(
+    servico: Servico,
+    *,
+    interativo: bool = True,
+    refazer: bool = False,
+    documentos: list[str] | None = None,
+    pasta_exportacao: Path | None = None,
+    pasta_saida: Path | None = None,
+) -> bool:
+    """Texto dos PDFs do acervo, com OCR onde falta. Demorado: confirma antes, quando interativo.
+
+    As pastas desviam a entrada e a saída do padrão — o caminho para testar com
+    uma exportação de amostra sem misturar com o texto do acervo real.
+    """
+    console.titulo("Extração do texto do acervo")
+    origem = pasta_exportacao or servico.config.caminhos.exportacao
+    destino = pasta_saida or servico.config.caminhos.texto_acervo
+    ja_extraidos = servico.contar_textos_extraidos(destino)
+
+    console.detalhe(f"  Exportação: {origem}")
+    console.detalhe(f"  Saída: {destino}")
+    if documentos:
+        console.detalhe(f"  Só os handles: {', '.join(documentos)} — refeitos mesmo que já extraídos.")
+    elif ja_extraidos and not refazer:
+        console.aviso(f"{ja_extraidos} PDFs já extraídos; só o que falta ou mudou será processado.")
+
+    if interativo:
+        console.detalhe("  Página sem texto passa por OCR, que leva segundos por página.")
+        if not console.confirmar("Continuar com a extração?", padrao=True):
+            console.info("Cancelado.")
+            return True
+
+    progresso = console.Progresso("extraindo")
+    resultado = servico.extrair_texto(
+        progresso,
+        refazer=refazer,
+        documentos=documentos,
+        pasta_exportacao=pasta_exportacao,
+        pasta_saida=pasta_saida,
+    )
+    progresso.encerrar()
+
+    detalhes = resultado.detalhes
+    _relatar(resultado, "PDFs extraídos")
+    console.detalhe(
+        f"  {detalhes['digital_nativo']} com texto próprio, {detalhes['ocr']} com OCR "
+        f"({detalhes['paginas_ocr']} páginas reconhecidas)."
+    )
+    if detalhes["paginas_abaixo_do_minimo"]:
+        console.aviso(
+            f"{detalhes['paginas_abaixo_do_minimo']} páginas ficaram abaixo do mínimo de caracteres mesmo depois "
+            "do OCR — em branco, curtas ou ilegíveis. Estão em `paginas_abaixo_do_minimo` no .json de cada "
+            "documento, para a revisão."
+        )
+    for aviso in detalhes["avisos"][:5]:
+        console.detalhe(f"  {aviso}")
+    if len(detalhes["avisos"]) > 5:
+        console.detalhe(f"  ... e mais {len(detalhes['avisos']) - 5} avisos")
+    console.detalhe(f"  Salvo em {detalhes['pasta']}")
+    return not resultado.houve_falha
+
+
+def _numero(valor: float | None, formato: str) -> str:
+    return "—" if valor is None else format(valor, formato)
+
+
+def acao_avaliar_ocr(servico: Servico, *, gerar: list[str] | None = None, paginas: list[str] | None = None) -> bool:
+    """Taxa de erro de cada motor de OCR contra as transcrições de referência.
+
+    `gerar` roda antes os motores locais pedidos ("todos" roda todos). As
+    páginas são as que têm referência, ou as de `paginas`.
+    """
+    from ..clientes.ortografia import palavras_desconhecidas
+
+    console.titulo("Avaliação do OCR")
+    base = servico.config.caminhos.avaliacao_ocr
+    identificadores = paginas or avaliacao_ocr.referencias_existentes(base)
+    console.detalhe(f"  Pasta: {base}")
+
+    if gerar:
+        disponiveis = servico.motores_de_ocr()
+        nomes = list(disponiveis) if "todos" in gerar else gerar
+        desconhecidos = [n for n in nomes if n not in disponiveis]
+        if desconhecidos:
+            console.falha(f"Motor desconhecido: {', '.join(desconhecidos)}. Disponíveis: {', '.join(disponiveis)}")
+            return False
+        alvo, avisos = avaliacao_ocr.resolver_paginas(
+            identificadores, servico.config.caminhos.exportacao, servico.config.extracao.idioma
+        )
+        for aviso in avisos:
+            console.aviso(aviso)
+        if not alvo:
+            console.falha("Nenhuma página para gerar. Grave as referências ou indique --pagina.")
+            return False
+        progresso = console.Progresso("gerando")
+        avisos = avaliacao_ocr.gerar_candidatos({n: disponiveis[n] for n in nomes}, alvo, base, progresso)
+        progresso.encerrar()
+        for aviso in avisos:
+            console.aviso(aviso)
+
+    if not avaliacao_ocr.referencias_existentes(base):
+        console.aviso("Ainda não há transcrições de referência: os candidatos foram gerados, mas não há o que medir.")
+        return True
+
+    progresso = console.Progresso("comparando")
+    resultados, avisos = avaliacao_ocr.avaliar(base, palavras_desconhecidas, progresso)
+    progresso.encerrar()
+    for aviso in avisos:
+        console.aviso(aviso)
+
+    console.info("\n  Por página (CER · WER · WER pont. separada · WER sem ordem · fora do dicionário · s)")
+    for r in resultados:
+        console.info(
+            f"    {r.pagina:42} {r.motor:32} {r.cer:6.1%} {r.wer:6.1%} {r.wer_pontuacao_separada:6.1%} {r.wer_sem_ordem:6.1%} "
+            f"{_numero(r.fora_do_dicionario, '6.1%')} {_numero(r.tempo_s, '6.1f')}"
+        )
+    console.info("\n  Média por motor (cada página pesa igual)")
+    for motor, m in avaliacao_ocr.media_por_motor(resultados).items():
+        console.info(
+            f"    {motor:32} CER {m['cer']:6.1%} · WER {m['wer']:6.1%} · pont. separada {m['wer_pontuacao_separada']:6.1%} · "
+            f"sem ordem {m['wer_sem_ordem']:6.1%} · "
+            f"fora do dicionário {_numero(m['fora_do_dicionario'], '6.1%')} · {_numero(m['tempo_s'], '.1f')} s/pág "
+            f"· {m['paginas']} págs"
+        )
+    return True
 
 
 def acao_chunking(servico: Servico, *, interativo: bool = True, arquivo_saida: Path | None = None) -> bool:

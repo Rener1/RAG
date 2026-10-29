@@ -1,0 +1,355 @@
+"""
+Leitura de PDF e OCR, por programas do sistema.
+
+Fica em `clientes/` pelo mesmo motivo do Ollama e do Qdrant: é adaptador de
+ferramenta externa. A etapa de extração orquestra; este arquivo chama
+processos. Nenhuma dependência Python nova — Poppler, OCRmyPDF e Tesseract são
+pacotes do sistema, e é por `subprocess` que se fala com eles.
+
+Duas decisões que não são óbvias:
+
+- `pdftotext` sem `-layout`. Com ele o texto sai na posição da página, e duas
+  colunas viram linhas intercaladas; sem ele sai na ordem de leitura.
+- OCRmyPDF em vez de Tesseract direto. Ele corrige inclinação e rotação antes
+  de reconhecer, paraleliza por página e aceita a lista de páginas a fazer.
+  Com `--output-type none` não monta PDF nenhum: só o texto do `--sidecar`.
+"""
+
+import os
+import re
+import subprocess
+import tempfile
+from dataclasses import replace
+from functools import cached_property
+from pathlib import Path
+
+from ..config import ConfigExtracao, ConfigKraken
+from ..erros import ErroConfiguracao, ErroPipeline
+from ..modelos import LeituraDoMotor
+
+SEPARADOR_DE_PAGINA = "\f"
+
+INSTALACAO = "sudo dnf install ocrmypdf tesseract tesseract-langpack-por tesseract-osd poppler-utils"
+
+# Códigos de saída do OCRmyPDF (ocrmypdf.ExitCode).
+SAIDA_DEPENDENCIA_AUSENTE = 3
+SAIDA_PDF_CRIPTOGRAFADO = 8
+
+
+def _rodar(comando: list[str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(comando, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    except FileNotFoundError as erro:
+        raise ErroConfiguracao(f"`{comando[0]}` não está instalado.", INSTALACAO) from erro
+
+
+def _final(texto: str, linhas: int = 3) -> str:
+    """As últimas linhas de um stderr — é onde a ferramenta diz o que houve."""
+    return " | ".join(linha.strip() for linha in texto.strip().splitlines()[-linhas:])
+
+
+def idiomas_do_tesseract() -> set[str] | None:
+    """Os pacotes de idioma instalados, ou `None` quando o Tesseract não está.
+
+    Sem o pacote do idioma pedido o OCR falha; sem o `osd`, a correção de
+    rotação. Os dois só aparecem aqui, não na instalação do binário.
+    """
+    try:
+        processo = subprocess.run(["tesseract", "--list-langs"], capture_output=True, text=True)
+    except FileNotFoundError:
+        return None
+    # A primeira linha é o cabeçalho ("List of available languages ...").
+    return {linha.strip() for linha in processo.stdout.splitlines()[1:] if linha.strip()}
+
+
+class LeitorPoppler:
+    """Camada de texto do PDF via `pdfinfo` e `pdftotext`."""
+
+    def contar_paginas(self, caminho: Path) -> int:
+        processo = _rodar(["pdfinfo", str(caminho)])
+        if processo.returncode != 0:
+            raise ErroPipeline(f"pdfinfo não leu {caminho.name}: {_final(processo.stderr)}")
+        encontrado = re.search(r"^Pages:\s+(\d+)", processo.stdout, re.MULTILINE)
+        if not encontrado:
+            raise ErroPipeline(f"pdfinfo não informou o número de páginas de {caminho.name}.")
+        return int(encontrado.group(1))
+
+    def textos_das_paginas(self, caminho: Path) -> list[str]:
+        total = self.contar_paginas(caminho)
+        processo = _rodar(["pdftotext", "-enc", "UTF-8", str(caminho), "-"])
+        if processo.returncode != 0:
+            raise ErroPipeline(f"pdftotext não leu {caminho.name}: {_final(processo.stderr)}")
+
+        # O pdftotext fecha cada página com `\f`, a última inclusive (conferido
+        # no Poppler 26.01): N páginas dão N+1 pedaços, e o último é vazio.
+        # Aceitar N pedaços seria tratar uma página perdida como página vazia.
+        *pedacos, resto = processo.stdout.split(SEPARADOR_DE_PAGINA)
+        if len(pedacos) != total or resto.strip():
+            raise ErroPipeline(
+                f"{caminho.name}: o pdftotext devolveu {len(pedacos)} páginas, mas o PDF tem {total}. "
+                "Gravar assim deslocaria a numeração das páginas."
+            )
+        return pedacos
+
+
+class ReconhecedorOcrmypdf:
+    """OCR das páginas pedidas, via OCRmyPDF com Tesseract."""
+
+    def __init__(self, config: ConfigExtracao) -> None:
+        self._config = config
+
+    @property
+    def _processos(self) -> int:
+        return self._config.processos or os.cpu_count() or 1
+
+    @property
+    def _parametros(self) -> list[str]:
+        """Os parâmetros que mudam o resultado — os que se gravam com cada documento."""
+        return ["-l", self._config.idioma, "--force-ocr", "--deskew", "--rotate-pages"]
+
+    @cached_property
+    def identificacao(self) -> dict[str, str]:
+        # Sob demanda e uma vez só: um acervo todo digital não precisa ter o
+        # OCR instalado, e a versão não muda no meio de uma execução.
+        ocrmypdf = _rodar(["ocrmypdf", "--version"])
+        tesseract = _rodar(["tesseract", "--version"])
+        # O Tesseract 4 escreve a versão no stderr; o 5, no stdout.
+        versao_tesseract = (tesseract.stdout or tesseract.stderr).strip().splitlines()[0]
+        return {
+            "ferramenta": "ocrmypdf + tesseract",
+            "versao": f"ocrmypdf {ocrmypdf.stdout.strip()}; {versao_tesseract}",
+            "parametros": " ".join(self._parametros),
+        }
+
+    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, str]:
+        if not paginas:
+            return {}
+
+        with tempfile.TemporaryDirectory(prefix="rag-ocr-") as pasta:
+            sidecar = Path(pasta) / "texto.txt"
+            comando = [
+                "ocrmypdf",
+                *self._parametros,
+                "--pages",
+                ",".join(str(n) for n in paginas),
+                "--jobs",
+                str(self._processos),
+                "--quiet",
+                "--sidecar",
+                str(sidecar),
+                "--output-type",
+                "none",
+                str(caminho),
+                "-",
+            ]
+            processo = _rodar(comando)
+
+            if processo.returncode == SAIDA_DEPENDENCIA_AUSENTE:
+                raise ErroConfiguracao(f"O OCRmyPDF não achou uma dependência: {_final(processo.stderr)}", INSTALACAO)
+            if processo.returncode == SAIDA_PDF_CRIPTOGRAFADO:
+                raise ErroPipeline(f"{caminho.name} é criptografado — o OCR não abre.")
+            if processo.returncode != 0:
+                raise ErroPipeline(
+                    f"O OCRmyPDF saiu com código {processo.returncode} em {caminho.name}: {_final(processo.stderr)}"
+                )
+
+            texto = sidecar.read_text(encoding="utf-8")
+
+        return paginas_do_sidecar(texto, paginas, caminho.name)
+
+
+# Aviso que o OCRmyPDF põe no sidecar no lugar das páginas não pedidas. O 16.7
+# escreve "page(s) 2-3", e páginas puladas em sequência viram UM pedaço só.
+PADRAO_PAGINA_PULADA = re.compile(r"\s*\[OCR skipped on page(?:\(s\))?s? (\d+)(?:\s*-\s*(\d+))?\]\s*")
+
+
+def paginas_do_sidecar(texto: str, pedidas: list[int], nome: str) -> dict[int, str]:
+    """Texto de cada página pedida, a partir do sidecar do OCRmyPDF.
+
+    O sidecar separa os pedaços com `\\f`, mas um pedaço não é uma página:
+    páginas puladas em sequência saem num aviso só (conferido no OCRmyPDF
+    16.7), então indexar por posição pega a página errada sem erro nenhum. A
+    numeração é reconstruída pelos avisos, que dizem que páginas cobrem, e
+    qualquer descompasso é erro — nunca texto atribuído à página errada.
+    """
+    textos: dict[int, str] = {}
+    atual = 1
+    for pedaco in texto.split(SEPARADOR_DE_PAGINA):
+        pulada = PADRAO_PAGINA_PULADA.fullmatch(pedaco)
+        if not pulada:
+            textos[atual] = pedaco
+            atual += 1
+            continue
+        inicio, fim = int(pulada.group(1)), int(pulada.group(2) or pulada.group(1))
+        if inicio != atual or fim < inicio:
+            raise ErroPipeline(f"{nome}: o OCR pulou as páginas {inicio}–{fim} quando se esperava a {atual}.")
+        atual = fim + 1
+
+    faltam = [n for n in pedidas if n not in textos]
+    if faltam:
+        raise ErroPipeline(f"{nome}: o OCR não devolveu as páginas {faltam}.")
+    return {n: textos[n] for n in pedidas}
+
+
+# ── motores para a avaliação do OCR ───────────────────────────────────────
+#
+# Cada motor lê uma página e devolve o texto, para ser comparado com uma
+# transcrição de referência (`rag.avaliacao_ocr`). Não substituem a extração:
+# são as variantes que a medição compara antes de qualquer uma virar padrão.
+
+# Valores de `thresholding_method` do Tesseract 5: 0 é o Otsu global de sempre,
+# 2 é o Sauvola, adaptativo por região — o que recuperou o P1 do registro.
+BINARIZACOES = {"otsu": 0, "sauvola": 2}
+
+
+class MotorOcrmypdf:
+    """O caminho da extração atual (OCRmyPDF + Tesseract), uma página de cada vez."""
+
+    def __init__(self, config: ConfigExtracao) -> None:
+        self._config = config
+
+    def __call__(self, pdf: Path, pagina: int, idioma: str) -> LeituraDoMotor:
+        reconhecedor = ReconhecedorOcrmypdf(replace(self._config, idioma=idioma))
+        return LeituraDoMotor(reconhecedor.reconhecer(pdf, [pagina])[pagina])
+
+
+class MotorTesseract:
+    """Tesseract direto sobre a página rasterizada, com binarização e limpeza escolhidas.
+
+    Sem correção de orientação: as páginas de teste estão em pé, e uma rotação
+    errada seria um erro que não é do motor.
+    """
+
+    def __init__(self, binarizacao: str = "otsu", limpar: bool = False, dpi: int = 300) -> None:
+        self._binarizacao = BINARIZACOES[binarizacao]
+        self._limpar = limpar
+        self._dpi = dpi
+
+    def __call__(self, pdf: Path, pagina: int, idioma: str) -> LeituraDoMotor:
+        with tempfile.TemporaryDirectory(prefix="rag-ocr-") as pasta:
+            raiz = Path(pasta) / "pagina"
+            processo = _rodar(
+                [
+                    "pdftoppm",
+                    "-r",
+                    str(self._dpi),
+                    "-gray",
+                    "-f",
+                    str(pagina),
+                    "-l",
+                    str(pagina),
+                    "-singlefile",
+                    str(pdf),
+                    str(raiz),
+                ]
+            )
+            imagem = raiz.with_suffix(".pgm")
+            if processo.returncode != 0 or not imagem.is_file():
+                raise ErroPipeline(
+                    f"pdftoppm não rasterizou a página {pagina} de {pdf.name}: {_final(processo.stderr)}"
+                )
+
+            if self._limpar:
+                limpa = Path(pasta) / "limpa.pgm"
+                processo = _rodar(["unpaper", "--overwrite", str(imagem), str(limpa)])
+                if processo.returncode != 0:
+                    raise ErroPipeline(f"unpaper falhou na página {pagina} de {pdf.name}: {_final(processo.stderr)}")
+                imagem = limpa
+
+            saida = Path(pasta) / "saida"
+            processo = _rodar(
+                [
+                    "tesseract",
+                    str(imagem),
+                    str(saida),
+                    "-l",
+                    idioma,
+                    "-c",
+                    f"thresholding_method={self._binarizacao}",
+                    "txt",
+                    "tsv",
+                ]
+            )
+            if processo.returncode != 0:
+                raise ErroConfiguracao(f"O Tesseract falhou: {_final(processo.stderr)}", INSTALACAO)
+            texto = saida.with_suffix(".txt").read_text(encoding="utf-8")
+            confianca = confianca_media_do_tsv(saida.with_suffix(".tsv").read_text(encoding="utf-8"))
+        return LeituraDoMotor(texto, confianca)
+
+
+class MotorKraken:
+    """Kraken no container `rag-kraken`: segmentação por linha de base e reconhecimento.
+
+    A página é rasterizada aqui, com o mesmo `pdftoppm` do Tesseract, para a
+    comparação ser justa; o container só lê a imagem. O idioma não entra: o
+    modelo é multilíngue e reconhece por caractere, sem dicionário.
+    """
+
+    def __init__(self, config: ConfigKraken, pasta_modelos: Path, dpi: int = 300) -> None:
+        self._config = config
+        self._pasta_modelos = pasta_modelos
+        self._dpi = dpi
+
+    def __call__(self, pdf: Path, pagina: int, idioma: str) -> LeituraDoMotor:
+        if not (self._pasta_modelos / self._config.modelo).is_file():
+            raise ErroConfiguracao(
+                f"Modelo do Kraken não encontrado em {self._pasta_modelos / self._config.modelo}.",
+                f"podman run --rm -v {self._pasta_modelos}:/modelos:Z {self._config.imagem} get 10.5281/zenodo.10592716",
+            )
+        with tempfile.TemporaryDirectory(prefix="rag-kraken-") as pasta:
+            processo = _rodar(
+                [
+                    "pdftoppm",
+                    "-r",
+                    str(self._dpi),
+                    "-gray",
+                    "-png",
+                    "-f",
+                    str(pagina),
+                    "-l",
+                    str(pagina),
+                    "-singlefile",
+                    str(pdf),
+                    f"{pasta}/pagina",
+                ]
+            )
+            if processo.returncode != 0:
+                raise ErroPipeline(
+                    f"pdftoppm não rasterizou a página {pagina} de {pdf.name}: {_final(processo.stderr)}"
+                )
+
+            processo = _rodar(
+                [
+                    "podman", "run", "--rm", "--pull=never",
+                    "-v", f"{self._pasta_modelos}:/modelos:ro,Z",
+                    "-v", f"{pasta}:/trabalho:Z",
+                    self._config.imagem,
+                    "-i", "pagina.png", "pagina.txt", "segment", "-bl", "ocr", "-m", f"/modelos/{self._config.modelo}",
+                ]
+            )  # fmt: skip
+            saida = Path(pasta) / "pagina.txt"
+            if processo.returncode != 0 or not saida.is_file():
+                if "image not known" in processo.stderr or "no such image" in processo.stderr.lower():
+                    raise ErroConfiguracao(
+                        f"A imagem {self._config.imagem} não existe.",
+                        "podman build -t rag-kraken -f Containerfile.kraken .",
+                    )
+                raise ErroPipeline(f"O Kraken falhou na página {pagina} de {pdf.name}: {_final(processo.stderr)}")
+            texto = saida.read_text(encoding="utf-8")
+        # O CATMuS marca o hífen de fim de linha com `¬`, convenção de transcrição
+        # e não leitura: sem a troca, a avaliação puniria a convenção como erro.
+        return LeituraDoMotor(texto.replace("¬", "-"))
+
+
+def confianca_media_do_tsv(tsv: str) -> float | None:
+    """Média da confiança das palavras (nível 5) com texto. `None` se não houver nenhuma."""
+    valores = []
+    for linha in tsv.splitlines()[1:]:
+        campos = linha.split("\t")
+        if len(campos) == 12 and campos[0] == "5" and campos[11].strip():
+            try:
+                valores.append(float(campos[10]))
+            except ValueError:
+                continue
+    valores = [v for v in valores if v >= 0]
+    return sum(valores) / len(valores) if valores else None

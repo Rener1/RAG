@@ -42,6 +42,7 @@ lá e ligue nas duas portas.
 ```bash
 python3 main.py                    # menu
 python3 main.py ambiente           # diagnóstico (use antes de investigar qualquer falha)
+python3 main.py extrair            # texto dos PDFs do acervo; --documento HANDLE refaz um só
 python3 main.py chunking           # --saida OUTRO.jsonl para não destruir o chunks.jsonl indexado
 python3 main.py indexar            # retoma de onde parou; --recriar para refazer
 python3 main.py --carga reduzida indexar   # EXPERIMENTAL: poupa o hardware; o padrão é --carga total
@@ -50,6 +51,7 @@ python3 main.py buscar "..."       # só recuperação; --sem-intermediar deslig
 python3 main.py perguntar "..."    # ciclo RAG completo; --direto pula a problematização
 python3 main.py avaliar --comparar # recall@k com e sem mediação (não gera texto)
 python3 main.py avaliar --conversa # recall dos seguimentos, crus contra reescritos
+python3 main.py avaliar-ocr        # CER/WER de cada motor de OCR contra referências; --gerar todos roda os motores
 python3 main.py acelerador         # qual torch esta máquina precisa (para o build)
 python3 main.py marcos             # marcos pedagógicos disponíveis
 python3 main.py config             # configuração em vigor, com a origem de cada valor
@@ -74,12 +76,13 @@ src/rag/
   sessao.py          Dialogo — a máquina de estados que problematiza antes de responder
   conversa.py        Conversa — memória entre perguntas: reescreve o seguimento, leva o histórico ao prompt
   avaliacao.py       recall@k contra o gabarito de avaliacao/casos.jsonl
+  avaliacao_ocr.py   CER/WER de motores de OCR contra transcrições de referência (data/avaliacao_ocr/, fora do git)
   acelerador.py      detecta GPU e diz qual build de torch instalar
   lexico.py          BM25 e a fusão dele com a busca densa (desligado por padrão)
   carga.py           limitador de carga: embrulha embutidor, reordenador e gerador de apoio
   servico.py         onde as implementações concretas encontram os protocolos
-  clientes/          Ollama, Qdrant, UESP, sessão HTTP com repetição
-  etapas/            download, chunking, indexacao, recuperacao, geracao
+  clientes/          Ollama, Qdrant, UESP, PDF e OCR, sessão HTTP com repetição
+  etapas/            download, extracao, chunking, indexacao, recuperacao, geracao
   interface/         console, menu, cli, acoes
 ```
 
@@ -291,6 +294,28 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   entra no orçamento de contexto e tira espaço dos trechos, por isso o teto é baixo. Ele vive
   só no laço `acoes.acao_conversar` e nunca é gravado: guardar conversa é decisão de retenção
   de dado pessoal.
+- **A extração não gera PDF, só texto — e a página é sagrada.** O `.txt` de cada PDF separa as
+  páginas por `\f`, e é dessa divisão que vai sair a `pagina` da citação. Três coisas a protegem,
+  todas testadas: o `LeitorPoppler` exige N+1 pedaços para N páginas e falha em vez de aceitar
+  N (uma página perdida pareceria uma página vazia); `normalizar_pagina` tira `\f` de dentro da
+  página; e o sidecar do OCRmyPDF **junta num pedaço só as páginas puladas em sequência**
+  (`[OCR skipped on page(s) 2-3]`, conferido no 16.7), então a numeração sai dos avisos
+  (`paginas_do_sidecar`), nunca da posição. E o OCR só substitui a camada digital quando traz
+  mais texto: `--force-ocr` reconhece a página do zero, e folha de rosto digital curta trocaria
+  texto exato por texto provável.
+- **A binarização global do Tesseract descarta em silêncio página de fundo cinza.** No
+  7891/90109, onze páginas legíveis saíram vazias, sem erro nenhum. O OCRmyPDF só avisa no log
+  ("Too few characters"). Quem pega o caso é `paginas_abaixo_do_minimo` no `.json`: olhe essa
+  lista depois de toda extração. A binarização adaptativa (Sauvola) recupera o texto, e os
+  números estão nas medições. O `--deskew` também não basta para página com inclinação forte
+  (P11 do registro de revisão do OCR).
+- **O Kraken roda em container próprio (`Containerfile.kraken`, Python 3.12), chamado por
+  `podman run`**, como o Tesseract é chamado por subprocess: o código do RAG não importa nada dele.
+  Os modelos ficam em `data/kraken/`, montado em `/modelos`. **O torch fica pinado na versão exata
+  que o Kraken aceita, vindo do índice de CPU**: sem o pino, o pip trocou o torch de CPU pelo de
+  CUDA e a imagem foi de 1,66 GB para 6,4 GB, com bibliotecas NVIDIA numa máquina AMD. O build
+  falha se aparecer pacote `nvidia-`. O CATMuS marca o hífen de fim de linha com `¬`, e o
+  `MotorKraken` o troca por `-`.
 - **Os padrões ficam em `src/rag/config.py`**, não espalhados pelos módulos e não em `.env`. Por
   cima deles entra o `config.toml` (opcional, gitignored), e por cima dele as flags e o menu.
   Ajuste de menu e de flag vale só para aquela execução até ser gravado com `config --salvar`.
@@ -301,7 +326,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-346 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+407 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,

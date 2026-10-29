@@ -92,6 +92,12 @@ def _avaliar(servico: Servico) -> None:
     acoes.acao_avaliar(servico, comparar_configuracoes=comparar)
 
 
+def _avaliar_ocr(servico: Servico) -> None:
+    """Avaliação do OCR pelo menu, com a geração dos candidatos como oferta."""
+    gerar = console.confirmar("Gerar antes os candidatos dos motores locais? (OCR de cada página)", padrao=False)
+    acoes.acao_avaliar_ocr(servico, gerar=["todos"] if gerar else None)
+
+
 def _escolher_marco(servico: Servico) -> None:
     """Lista os marcos e troca o ativo para esta execução."""
     acoes.acao_listar_marcos(servico)
@@ -150,12 +156,14 @@ def executar(servico: Servico) -> int:
     opcoes = [
         Opcao("1", "Verificar ambiente", lambda: acoes.acao_ambiente(servico), "diagnóstico de serviços e artefatos"),
         Opcao("2", "Baixar corpus", lambda: acoes.acao_baixar(servico), "etapa 1 — rede, demorado"),
+        Opcao("e", "Extrair texto", lambda: acoes.acao_extrair(servico), "PDFs do acervo — OCR, demorado"),
         Opcao("3", "Gerar chunks", lambda: acoes.acao_chunking(servico), "etapa 2 — rápido"),
         Opcao("4", "Indexar", lambda: acoes.acao_indexar(servico), "etapa 3 — embedding, muito demorado"),
         Opcao("5", "Buscar", lambda: _laco_de_consulta(servico, "buscar"), "etapa 4 — só recuperação"),
         Opcao("6", "Perguntar", lambda: _laco_de_consulta(servico, "perguntar"), "etapa 5 — resposta direta"),
         Opcao("7", "Dialogar", lambda: _laco_de_consulta(servico, "dialogar"), "problematiza antes de responder"),
         Opcao("8", "Avaliar", lambda: _avaliar(servico), "mede a recuperação contra o gabarito"),
+        Opcao("o", "Avaliar OCR", lambda: _avaliar_ocr(servico), "taxa de erro dos motores de OCR"),
         Opcao("9", "Marco pedagógico", lambda: _escolher_marco(servico), "ver e trocar o marco ativo"),
         Opcao("c", "Configuração", lambda: _editar_configuracao(servico), "ver, ajustar e salvar parâmetros"),
     ]

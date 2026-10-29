@@ -35,6 +35,14 @@ RUN apt-get update \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
+# Extração de texto do acervo (`main.py extrair`): Poppler lê a camada de texto,
+# OCRmyPDF com Tesseract reconhece as páginas que são só imagem. São programas,
+# não bibliotecas Python — o pipeline os chama por subprocess. Camada à parte
+# para não refazer as dependências Python quando a lista de idiomas mudar.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils ocrmypdf tesseract-ocr-por tesseract-ocr-osd \
+    && rm -rf /var/lib/apt/lists/*
+
 # `data/`, `marcos/` e `avaliacao/` entram por montagem, não por cópia: são
 # estado e conteúdo editável, e precisam sobreviver à troca de imagem.
 

@@ -6,11 +6,13 @@ minutos" em "faltou baixar o modelo, o comando é este". Cada verificação
 devolve um estado e uma sugestão de conserto; nada é corrigido automaticamente.
 """
 
+import shutil
 from dataclasses import dataclass
 from enum import StrEnum
 
 from .acelerador import detectar as detectar_acelerador
 from .acelerador import torch_enxerga_a_gpu
+from .clientes.pdf import INSTALACAO, idiomas_do_tesseract
 from .config import Config
 from .servico import Servico
 
@@ -166,6 +168,65 @@ def verificar(config: Config) -> list[Verificacao]:
     else:
         itens.append(Verificacao("Chunks gerados", Estado.AVISO, "arquivo ausente", "Rode a etapa de chunking."))
 
+    itens.extend(_verificar_extracao(config, servico))
+    return itens
+
+
+def _verificar_extracao(config: Config, servico: Servico) -> list[Verificacao]:
+    """Ferramentas e artefatos da extração do acervo.
+
+    Só aviso, nunca falha: o corpus de teste não passa por aqui, e perguntar
+    continua possível sem nada disto.
+    """
+    itens: list[Verificacao] = []
+
+    ausentes = [
+        programa for programa in ("pdftotext", "pdfinfo", "ocrmypdf", "tesseract") if not shutil.which(programa)
+    ]
+    itens.append(
+        Verificacao(
+            "Ferramentas de PDF e OCR",
+            Estado.AVISO if ausentes else Estado.OK,
+            f"faltam: {', '.join(ausentes)}" if ausentes else "pdftotext, pdfinfo, ocrmypdf, tesseract",
+            INSTALACAO if ausentes else "",
+        )
+    )
+
+    idiomas = idiomas_do_tesseract()
+    if idiomas is not None:
+        pedidos = config.extracao.idioma.split("+")
+        faltam = [i for i in (*pedidos, "osd") if i not in idiomas]
+        pacotes = ["tesseract-osd" if i == "osd" else f"tesseract-langpack-{i}" for i in faltam]
+        itens.append(
+            Verificacao(
+                "Idiomas do OCR",
+                Estado.AVISO if faltam else Estado.OK,
+                f"faltam: {', '.join(faltam)}" if faltam else f"{', '.join(pedidos)} e osd (rotação)",
+                f"sudo dnf install {' '.join(pacotes)}" if faltam else "",
+            )
+        )
+
+    exportacao = config.caminhos.exportacao
+    extraidos = servico.contar_textos_extraidos()
+    if exportacao.is_dir():
+        itens_na_exportacao = sum(1 for p in exportacao.iterdir() if p.is_dir())
+        itens.append(
+            Verificacao(
+                "Texto do acervo",
+                Estado.OK if extraidos else Estado.AVISO,
+                f"{itens_na_exportacao} itens na exportação, {extraidos} PDFs extraídos",
+                "" if extraidos else "Rode a extração: python3 main.py extrair",
+            )
+        )
+    else:
+        itens.append(
+            Verificacao(
+                "Texto do acervo",
+                Estado.AVISO,
+                f"exportação ausente em {exportacao}",
+                "Só necessária para o acervo do IPF: copie a exportação do DSpace para lá.",
+            )
+        )
     return itens
 
 

@@ -25,6 +25,23 @@ ollama pull qwen2.5:7b    # geração
 python3 main.py           # menu interativo — tudo passa por aqui
 ```
 
+Para extrair o texto do acervo (`main.py extrair`), são precisos também programas do sistema,
+que não entram pelo `pip`:
+
+```bash
+sudo dnf install ocrmypdf tesseract tesseract-langpack-por tesseract-osd poppler-utils
+```
+
+O Kraken, motor de OCR em avaliação, roda num container próprio:
+
+```bash
+podman build -t rag-kraken -f Containerfile.kraken .
+podman run --rm -v ./data/kraken:/modelos:Z rag-kraken get 10.5281/zenodo.10592716   # modelo CATMuS-Print
+```
+
+`tesseract-osd` é o que corrige página digitalizada de cabeça para baixo. `main.py ambiente`
+diz se falta algum deles. A imagem do container já os traz.
+
 Use **podman**, não docker — em muitas distros `docker` já é o shim dele. O
 podman roda rootless, e por isso os volumes usam a flag `:Z` do SELinux.
 
@@ -95,6 +112,7 @@ marco: generico
 
   1  Verificar ambiente   diagnóstico de serviços e artefatos
   2  Baixar corpus        etapa 1 — rede, demorado
+  e  Extrair texto        PDFs do acervo — OCR, demorado
   3  Gerar chunks         etapa 2 — rápido
   4  Indexar              etapa 3 — embedding, muito demorado
   5  Buscar               etapa 4 — só recuperação
@@ -115,6 +133,9 @@ caras (1 e 4) confirmam antes de começar e mostram progresso.
 ```bash
 python3 main.py ambiente                      # diagnóstico
 python3 main.py baixar                        # etapa 1 — demorado
+python3 main.py extrair                       # texto dos PDFs do acervo, OCR onde falta
+python3 main.py extrair --documento 123456789/42   # refaz um documento só
+python3 main.py extrair --exportacao X --saida Y   # outra exportação, sem tocar em data/texto_acervo
 python3 main.py chunking                      # etapa 2
 python3 main.py chunking --estrategia paragrafo --saida data/x.jsonl   # corte antigo, um chunk por parágrafo
 python3 main.py indexar                       # etapa 3 — retoma de onde parou
@@ -129,6 +150,7 @@ python3 main.py perguntar                     # modo conversa, com memória ('/n
 python3 main.py perguntar --sem-memoria       # modo conversa, cada pergunta sozinha
 python3 main.py avaliar --comparar            # recall@k com e sem mediação
 python3 main.py avaliar --conversa            # recall dos seguimentos, crus contra reescritos
+python3 main.py avaliar-ocr --gerar todos     # taxa de erro de cada motor de OCR contra as referências
 python3 main.py marcos                        # marcos pedagógicos disponíveis
 python3 main.py config                        # configuração e origem de cada valor
 python3 main.py config --salvar               # grava em config.toml
@@ -153,6 +175,11 @@ Cada etapa consome o artefato da anterior:
 | 3 | indexação | `data/chunks.jsonl` | coleção no Qdrant | ~17 min na GPU; muito mais em CPU |
 | 4 | recuperação | coleção | trechos | instantâneo |
 | 5 | geração | trechos | resposta | ~segundos a minutos |
+
+O acervo do IPF entra por uma etapa a mais, antes do chunking: `extrair` lê a exportação do
+DSpace (uma pasta por item, em `data/acervo_dspace/`) e grava o texto de cada PDF em
+`data/texto_acervo/`, com as páginas separadas por `\f`. O chunking ainda não lê esse texto
+(ver [roadmap](docs/roadmap.md) §5).
 
 A etapa 4 é isolável de propósito: recall@k é avaliável sem gerar uma linha de
 texto. **Ao depurar qualidade de resposta, confira a recuperação primeiro** —
