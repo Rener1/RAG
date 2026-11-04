@@ -237,6 +237,68 @@ ruído. Reproduz com
 Ainda não é padrão: falta medir contra transcrição de referência (CER), o que é a Fase 1 do plano
 do [roadmap](../roadmap.md) §4, item 7.
 
+## Motores de OCR — o Kraken lidera (2026-11-04)
+
+Comparação de seis motores em 5 páginas do acervo, contra transcrições de referência **diplomáticas**
+(mantêm os erros do original, os hífens de fim de linha e a falta de espaço depois da vírgula; ficam
+fora carimbo, anotação a caneta, furos e marcas de gráfica). Feitas por Claude a partir da imagem e
+conferidas uma a uma por Rener contra o papel. Ficam em `data/avaliacao_ocr/`, fora do git, porque
+são texto integral do acervo.
+
+Média por motor, cada página pesando igual:
+
+| Motor | CER | WER | WER pont. separada | WER sem ordem | fora do dicionário | s/página |
+|---|---|---|---|---|---|---|
+| `atual` (OCRmyPDF, a extração de hoje) | 35,9% | 40,8% | 40,3% | 32,7% | 5,4% | 2,1 |
+| `tesseract-otsu` | 28,3% | 32,7% | 32,0% | 31,0% | 4,0% | 0,8 |
+| `tesseract-sauvola` | 14,7% | 25,5% | 23,5% | 20,9% | 7,5% | 1,1 |
+| `tesseract-sauvola-unpaper` | 15,3% | 25,1% | 23,1% | 19,3% | 7,3% | 3,5 |
+| `tesseract-otsu-reserva-sauvola` | 12,5% | 21,3% | 19,7% | 17,6% | 6,5% | 1,1 |
+| **`kraken-catmus`** (CATMuS-Print Large) | **7,1%** | 17,3% | **12,4%** | 17,2% | 5,7% | 14,6 |
+
+CER por página dos três que importam:
+
+| Página | O que testa | atual | otsu + reserva sauvola | kraken |
+|---|---|---|---|---|
+| 7891/90109 p. 3 | fundo cinza, margem cortada (P1) | 100% | 20,8% | **1,5%** |
+| 7891/90108 p. 2 | fotografada, linhas curvas, inglês | 37,1% | 9,7% | **0,4%** |
+| 7891/1133 p. 4 | linhas embaralhadas (P11) | 25,2% | **14,7%** | 15,6% |
+| 7891/1133 p. 2 | datiloscrito limpo | 10,0% | 10,1% | 10,5% |
+| 7891/1129 p. 2 | impresso, com carimbo | 7,3% | 7,2% | 7,9% |
+
+O que os números dizem:
+
+- **O Kraken ganha onde o Tesseract quebra**, em página degradada ou fotografada, por causa da
+  segmentação por linha de base. Nas páginas limpas empata no CER.
+- **O WER comum castiga o Kraken por convenção, não por leitura.** Ele põe espaço depois da vírgula
+  e o datiloscrito não, o que conta como duas palavras erradas. Com a pontuação separada, o Kraken
+  vai de 17,3% para 12,4%. O que resta contra ele nas páginas datilografadas são as linhas de ruído
+  dos furos de encadernação: até 33 numa página, cada uma uma letra solta. A normalização pendente
+  (roadmap §4, item 9) cuida disso.
+- **Sauvola só serve de reserva.** Sozinho resgata a página de fundo cinza, mas piora a página
+  inclinada (14,7% → 25,1%). A combinação "Otsu, e Sauvola quando a página sai quase vazia" pega o
+  melhor dos dois, com um critério que não depende da referência.
+- **A fração fora do dicionário não acompanha o CER.** O caminho atual erra 35,9% dos caracteres e
+  tem só 5,4% de palavras desconhecidas: página vazia não tem palavra para estar errada, e texto
+  fora de ordem é feito de palavras certas. Ela não serve sozinha como nota de qualidade da página
+  (roadmap §4, item 7): precisa ao menos da densidade de caracteres e de um sinal de ordem.
+- **A confiança por palavra do Kraken vê hesitação, não acerto.** Na 7891/1133 p. 2 (saída ALTO, 465
+  palavras, mediana 1,0), as 20 palavras de confiança mais baixa (0,13–0,52) são todas ruído dos
+  furos, e as letras cobertas por caneta ficam um pouco abaixo da mediana (0,93 e 0,95). Mas os
+  acentos perdidos saem com 0,996–1,0: é viés do modelo, que viu pouco português acentuado, não
+  dúvida de leitura. Esses o dicionário pega (`circulos`, `opinioes` não existem). A nota de
+  qualidade soma os dois sinais palavra a palavra; nenhum basta sozinho, e nenhum pega acento
+  perdido que forma outra palavra válida. O ALTO sai da mesma execução, com `-a` no lugar do texto.
+- **O tempo do Kraken é quase todo partida de container**, que acontece uma vez por página na
+  avaliação. Na extração, mandar o documento inteiro de uma vez corta a maior parte disso.
+
+**Pendente:** a sexta página, 7891/1134 p. 1 (P6: colunas e legenda, em espanhol). Falta a
+referência e o `tesseract-langpack-spa`. Cinco páginas são amostra pequena: a medição confirma a
+direção (Kraken como motor-alvo), não um número para o acervo.
+
+Reproduz com `python3 main.py avaliar-ocr --gerar todos`, com o container `rag-kraken` construído e
+o modelo baixado (ver README). Sem `--gerar`, só recompara os candidatos já gravados.
+
 ## Tamanho do recorte — agrupado de 2000 vence (2026-10-05)
 
 `paragrafo_agrupado` junta parágrafos consecutivos até o teto, em vez de descartar

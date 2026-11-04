@@ -326,7 +326,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-407 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+411 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,
