@@ -190,7 +190,7 @@ métodos com a mesma forma.
 | `RecuperadorDeTrechos` | `buscar(pergunta, k)` | `Recuperador`, `RecuperadorHibrido`, `IntermediadorDeConsulta` | `RecuperadorFalso` |
 | `ColetorDeCorpus` | listar e baixar documentos | `ColetorUESP` | `ColetorFalso` |
 | `LeitorDePdf` | `textos_das_paginas(pdf)` — a camada de texto existente | `LeitorPoppler` (`pdftotext`) | `LeitorFalso` |
-| `ReconhecedorOptico` | `reconhecer(pdf, paginas)`, `identificacao` | `ReconhecedorOcrmypdf` (OCRmyPDF + Tesseract) | `ReconhecedorFalso` |
+| `ReconhecedorOptico` | `reconhecer(pdf, paginas)` → `PaginaPosicionada` por página, `identificacao` | `ReconhecedorKraken` (padrão, com coordenadas), `ReconhecedorOcrmypdf` (só texto) | `ReconhecedorFalso` (com ou sem coordenadas) |
 | `MarcoPedagogico` | seções e metadados do marco | `Marco` | `MarcoFalso` |
 
 **Divergência registrada com o plano.** O contrato da
@@ -287,11 +287,18 @@ O desenho está em [esquema de metadados](../acervo/esquema-de-metadados.md) §8
 **A estratégia de ponta a ponta para o acervo** (decidida em 2026-10-23 a 2026-10-29):
 
 ```
-PDF do DSpace → leitura (Kraken como motor-alvo; hoje Tesseract com Sauvola de reserva)
-  → nota de qualidade por página → revisão das piores no eScriptorium → texto posicionado (PAGE XML)
+PDF do DSpace → leitura (Kraken) → texto posicionado (PAGE XML) com regiões tipadas por regra
+  → nota de qualidade por página → revisão das piores no eScriptorium
   → recorte por parágrafo e seção reais → índice (bge-m3, Qdrant)
   → ligações por proximidade → busca + relacionados + reordenador → resposta com o marco, citando a página
 ```
+
+**Texto posicionado.** `texto_posicionado.py` fica na raiz porque a extração e a revisão o usam. A
+extração grava `<arquivo>.paginas/pagina_NNNN.ocr.xml` para cada página que passou pelo OCR com
+coordenadas, e a página do `.txt` é derivada dele: regiões na ordem de leitura, sem as de tipo
+carimbo e ruído (`regioes.tipos_ignorados`). O `.json` registra as linhas por tipo e as regras
+usadas, porque outras regras dariam outro `.txt` do mesmo PAGE. A re-extração só apaga o `.ocr.xml`;
+o revisado, que virá do eScriptorium com outro sufixo, fica.
 
 A imagem é sempre a fonte, e o texto serve para achar o documento. Nada que um modelo interprete
 (conferência visual, ligações) chega ao usuário como afirmação: só decide que trecho entra. Fases,

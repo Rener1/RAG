@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from .modelos import Chunk, TrechoRecuperado
+from .texto_posicionado import PaginaPosicionada
 
 
 @runtime_checkable
@@ -97,14 +98,18 @@ class LeitorDePdf(Protocol):
 
 @runtime_checkable
 class ReconhecedorOptico(Protocol):
-    """Reconhece texto em páginas de imagem. Implementação atual: OCRmyPDF com Tesseract."""
+    """Reconhece texto em páginas de imagem. Implementação padrão: Kraken; alternativa: OCRmyPDF.
+
+    Devolve texto posicionado. Um motor que só dá texto o embrulha com
+    `pagina_sem_posicao`, e a página sai sem PAGE XML e sem regra de região.
+    """
 
     @property
     def identificacao(self) -> dict[str, str]:
         """Ferramenta, versão e parâmetros — gravados junto de cada documento processado."""
         ...
 
-    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, str]:
+    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, PaginaPosicionada]:
         """Texto das páginas pedidas (numeradas a partir de 1), e só delas."""
         ...
 

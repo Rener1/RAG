@@ -36,10 +36,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .config import ConfigRegioes
 from .erros import ErroConfiguracao
 from .etapas import RelatorProgresso, sem_progresso
 from .etapas.extracao import listar_pdfs, nome_seguro
 from .modelos import LeituraDoMotor
+from .protocolos import ReconhecedorOptico
+from .texto_posicionado import classificar_regioes, texto_da_pagina, tipos_ignorados
 
 # (pdf, número da página a partir de 1, idioma do Tesseract) → leitura.
 MotorDeOcr = Callable[[Path, int, str], LeituraDoMotor]
@@ -83,6 +86,24 @@ def identificador(handle: str, arquivo: str, numero: int) -> str:
     Leva o nome do arquivo porque um item pode ter mais de um PDF.
     """
     return f"{nome_seguro(handle)}_{Path(arquivo).stem}{SUFIXO_DE_PAGINA}{numero:04d}"
+
+
+class MotorPosicionado:
+    """Um reconhecedor da extração visto como motor: texto derivado das regiões, como a extração grava.
+
+    Mede o que de fato chega ao `.txt` — com as regras de região — e dá a
+    confiança média das palavras que ficaram, que o texto puro não traz.
+    """
+
+    def __init__(self, reconhecedor: ReconhecedorOptico, regioes: ConfigRegioes) -> None:
+        self._reconhecedor, self._regioes = reconhecedor, regioes
+
+    def __call__(self, pdf: Path, pagina: int, idioma: str) -> LeituraDoMotor:
+        posicionada = self._reconhecedor.reconhecer(pdf, [pagina])[pagina]
+        if posicionada.tem_posicao:
+            posicionada = classificar_regioes(posicionada, self._regioes)
+        ignorar = tipos_ignorados(self._regioes)
+        return LeituraDoMotor(texto_da_pagina(posicionada, ignorar), posicionada.confianca_media(ignorar))
 
 
 class MotorComReserva:

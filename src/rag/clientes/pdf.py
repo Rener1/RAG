@@ -26,6 +26,7 @@ from pathlib import Path
 from ..config import ConfigExtracao, ConfigKraken
 from ..erros import ErroConfiguracao, ErroPipeline
 from ..modelos import LeituraDoMotor
+from ..texto_posicionado import PaginaPosicionada, ler_page_xml, pagina_sem_posicao
 
 SEPARADOR_DE_PAGINA = "\f"
 
@@ -121,7 +122,11 @@ class ReconhecedorOcrmypdf:
             "parametros": " ".join(self._parametros),
         }
 
-    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, str]:
+    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, PaginaPosicionada]:
+        """Só texto: o sidecar do OCRmyPDF não traz coordenadas."""
+        return {n: pagina_sem_posicao(t) for n, t in self.reconhecer_texto(caminho, paginas).items()}
+
+    def reconhecer_texto(self, caminho: Path, paginas: list[int]) -> dict[int, str]:
         if not paginas:
             return {}
 
@@ -210,7 +215,7 @@ class MotorOcrmypdf:
 
     def __call__(self, pdf: Path, pagina: int, idioma: str) -> LeituraDoMotor:
         reconhecedor = ReconhecedorOcrmypdf(replace(self._config, idioma=idioma))
-        return LeituraDoMotor(reconhecedor.reconhecer(pdf, [pagina])[pagina])
+        return LeituraDoMotor(reconhecedor.reconhecer_texto(pdf, [pagina])[pagina])
 
 
 class MotorTesseract:
@@ -277,12 +282,58 @@ class MotorTesseract:
         return LeituraDoMotor(texto, confianca)
 
 
+def _rasterizar_png(pdf: Path, pagina: int, destino: Path, dpi: int) -> None:
+    """Página em PNG de tons de cinza, em `destino` (sem extensão: o pdftoppm a põe)."""
+    processo = _rodar(
+        ["pdftoppm", "-r", str(dpi), "-gray", "-png", "-f", str(pagina), "-l", str(pagina), "-singlefile", str(pdf), str(destino)]
+    )  # fmt: skip
+    if processo.returncode != 0:
+        raise ErroPipeline(f"pdftoppm não rasterizou a página {pagina} de {pdf.name}: {_final(processo.stderr)}")
+
+
+def _exigir_modelo(config: ConfigKraken, pasta_modelos: Path) -> None:
+    """Antes de rasterizar: sem o modelo, nada do que vem depois serve."""
+    if not (pasta_modelos / config.modelo).is_file():
+        raise ErroConfiguracao(
+            f"Modelo do Kraken não encontrado em {pasta_modelos / config.modelo}.",
+            f"podman run --rm -v {pasta_modelos}:/modelos:Z {config.imagem} get 10.5281/zenodo.10592716",
+        )
+
+
+def _rodar_kraken(
+    config: ConfigKraken, pasta_modelos: Path, pasta: Path, pares: list[tuple[str, str]], formato: list[str]
+) -> None:
+    """Uma execução do container sobre `pasta`, com um par entrada → saída por página.
+
+    O modelo é carregado uma vez por execução, e é por isso que o reconhecedor
+    manda várias páginas de uma vez.
+    """
+    entradas = [argumento for entrada, saida in pares for argumento in ("-i", entrada, saida)]
+    processo = _rodar(
+        [
+            "podman", "run", "--rm", "--pull=never",
+            "-v", f"{pasta_modelos}:/modelos:ro,Z",
+            "-v", f"{pasta}:/trabalho:Z",
+            config.imagem,
+            *formato, *entradas, "segment", "-bl", "ocr", "-m", f"/modelos/{config.modelo}",
+        ]
+    )  # fmt: skip
+    if processo.returncode != 0 or not all((pasta / saida).is_file() for _, saida in pares):
+        if "image not known" in processo.stderr or "no such image" in processo.stderr.lower():
+            raise ErroConfiguracao(
+                f"A imagem {config.imagem} não existe.",
+                "podman build -t rag-kraken -f Containerfile.kraken .",
+            )
+        raise ErroPipeline(f"O Kraken falhou: {_final(processo.stderr)}")
+
+
 class MotorKraken:
     """Kraken no container `rag-kraken`: segmentação por linha de base e reconhecimento.
 
     A página é rasterizada aqui, com o mesmo `pdftoppm` do Tesseract, para a
     comparação ser justa; o container só lê a imagem. O idioma não entra: o
-    modelo é multilíngue e reconhece por caractere, sem dicionário.
+    modelo é multilíngue e reconhece por caractere, sem dicionário. Devolve o
+    texto puro do Kraken, sem regra de região — é a linha de base da medição.
     """
 
     def __init__(self, config: ConfigKraken, pasta_modelos: Path, dpi: int = 300) -> None:
@@ -291,54 +342,66 @@ class MotorKraken:
         self._dpi = dpi
 
     def __call__(self, pdf: Path, pagina: int, idioma: str) -> LeituraDoMotor:
-        if not (self._pasta_modelos / self._config.modelo).is_file():
-            raise ErroConfiguracao(
-                f"Modelo do Kraken não encontrado em {self._pasta_modelos / self._config.modelo}.",
-                f"podman run --rm -v {self._pasta_modelos}:/modelos:Z {self._config.imagem} get 10.5281/zenodo.10592716",
-            )
+        _exigir_modelo(self._config, self._pasta_modelos)
         with tempfile.TemporaryDirectory(prefix="rag-kraken-") as pasta:
-            processo = _rodar(
-                [
-                    "pdftoppm",
-                    "-r",
-                    str(self._dpi),
-                    "-gray",
-                    "-png",
-                    "-f",
-                    str(pagina),
-                    "-l",
-                    str(pagina),
-                    "-singlefile",
-                    str(pdf),
-                    f"{pasta}/pagina",
-                ]
-            )
-            if processo.returncode != 0:
-                raise ErroPipeline(
-                    f"pdftoppm não rasterizou a página {pagina} de {pdf.name}: {_final(processo.stderr)}"
-                )
-
-            processo = _rodar(
-                [
-                    "podman", "run", "--rm", "--pull=never",
-                    "-v", f"{self._pasta_modelos}:/modelos:ro,Z",
-                    "-v", f"{pasta}:/trabalho:Z",
-                    self._config.imagem,
-                    "-i", "pagina.png", "pagina.txt", "segment", "-bl", "ocr", "-m", f"/modelos/{self._config.modelo}",
-                ]
-            )  # fmt: skip
-            saida = Path(pasta) / "pagina.txt"
-            if processo.returncode != 0 or not saida.is_file():
-                if "image not known" in processo.stderr or "no such image" in processo.stderr.lower():
-                    raise ErroConfiguracao(
-                        f"A imagem {self._config.imagem} não existe.",
-                        "podman build -t rag-kraken -f Containerfile.kraken .",
-                    )
-                raise ErroPipeline(f"O Kraken falhou na página {pagina} de {pdf.name}: {_final(processo.stderr)}")
-            texto = saida.read_text(encoding="utf-8")
+            _rasterizar_png(pdf, pagina, Path(pasta) / "pagina", self._dpi)
+            try:
+                _rodar_kraken(self._config, self._pasta_modelos, Path(pasta), [("pagina.png", "pagina.txt")], [])
+            except ErroConfiguracao:
+                raise
+            except ErroPipeline as erro:
+                raise ErroPipeline(f"Página {pagina} de {pdf.name}: {erro}") from erro
+            texto = (Path(pasta) / "pagina.txt").read_text(encoding="utf-8")
         # O CATMuS marca o hífen de fim de linha com `¬`, convenção de transcrição
         # e não leitura: sem a troca, a avaliação puniria a convenção como erro.
         return LeituraDoMotor(texto.replace("¬", "-"))
+
+
+class ReconhecedorKraken:
+    """OCR da extração pelo Kraken, com texto posicionado (PAGE XML) por página.
+
+    Manda as páginas em lotes de `paginas_por_chamada`: cada execução do
+    container carrega o modelo uma vez, e as imagens do lote ficam no /tmp.
+    """
+
+    def __init__(self, config: ConfigKraken, pasta_modelos: Path) -> None:
+        self._config = config
+        self._pasta_modelos = pasta_modelos
+
+    @cached_property
+    def identificacao(self) -> dict[str, str]:
+        processo = _rodar(["podman", "run", "--rm", "--pull=never", self._config.imagem, "--version"])
+        versao = (
+            processo.stdout.strip().splitlines()[-1] if processo.returncode == 0 and processo.stdout.strip() else ""
+        )
+        return {
+            "ferramenta": "kraken",
+            "versao": f"{versao or 'kraken (versão não lida)'}; modelo {Path(self._config.modelo).name}",
+            "parametros": f"pdftoppm -r {self._config.dpi} -gray; segment -bl; ocr -m {self._config.modelo}",
+        }
+
+    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, PaginaPosicionada]:
+        _exigir_modelo(self._config, self._pasta_modelos)
+        tamanho = max(1, self._config.paginas_por_chamada)
+        resultado: dict[int, PaginaPosicionada] = {}
+        for inicio in range(0, len(paginas), tamanho):
+            resultado |= self._reconhecer_lote(caminho, paginas[inicio : inicio + tamanho])
+        return resultado
+
+    def _reconhecer_lote(self, caminho: Path, paginas: list[int]) -> dict[int, PaginaPosicionada]:
+        with tempfile.TemporaryDirectory(prefix="rag-kraken-") as nome:
+            pasta = Path(nome)
+            pares = []
+            for numero in paginas:
+                _rasterizar_png(caminho, numero, pasta / f"pagina_{numero:04d}", self._config.dpi)
+                pares.append((f"pagina_{numero:04d}.png", f"pagina_{numero:04d}.xml"))
+            try:
+                _rodar_kraken(self._config, self._pasta_modelos, pasta, pares, ["-x"])
+            except ErroConfiguracao:
+                raise
+            except ErroPipeline as erro:
+                raise ErroPipeline(f"{caminho.name}, páginas {paginas[0]}–{paginas[-1]}: {erro}") from erro
+            return {n: ler_page_xml((pasta / saida).read_bytes()) for n, (_, saida) in zip(paginas, pares, strict=True)}
 
 
 def confianca_media_do_tsv(tsv: str) -> float | None:

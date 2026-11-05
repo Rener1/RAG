@@ -15,7 +15,7 @@ from functools import cached_property
 from pathlib import Path
 
 from . import marco as marco_pedagogico
-from .avaliacao_ocr import MotorComReserva, MotorDeOcr
+from .avaliacao_ocr import MotorComReserva, MotorDeOcr, MotorPosicionado
 from .carga import EmbutidorLimitado, GeradorLimitado, LimitadorDeCarga, ModoDeCarga, ReordenadorLimitado, modo_de_carga
 from .clientes import (
     ClienteOllama,
@@ -25,12 +25,14 @@ from .clientes import (
     MotorKraken,
     MotorOcrmypdf,
     MotorTesseract,
+    ReconhecedorKraken,
     ReconhecedorOcrmypdf,
     ReordenadorLocal,
     RepositorioQdrant,
 )
 from .config import CONFIG, Config, ConfiguracaoCarregada
 from .conversa import Conversa
+from .erros import ErroConfiguracao
 from .etapas import RelatorProgresso, sem_progresso
 from .etapas import chunking as etapa_chunking
 from .etapas import download as etapa_download
@@ -110,7 +112,14 @@ class Servico:
 
     @cached_property
     def reconhecedor(self) -> ReconhecedorOptico:
-        return ReconhecedorOcrmypdf(self.config.extracao)
+        motor = self.config.extracao.motor
+        if motor == "kraken":
+            return ReconhecedorKraken(self.config.kraken, self.config.caminhos.kraken)
+        if motor == "ocrmypdf":
+            return ReconhecedorOcrmypdf(self.config.extracao)
+        raise ErroConfiguracao(
+            f"extracao.motor = {motor!r} não existe.", sugestao='Use "kraken" (padrão) ou "ocrmypdf".'
+        )
 
     @cached_property
     def gerador(self) -> GeradorOllama:
@@ -279,6 +288,7 @@ class Servico:
             self.reconhecedor,
             refazer=refazer,
             documentos=documentos,
+            regioes=self.config.regioes,
             progresso=progresso,
         )
 
@@ -290,6 +300,9 @@ class Servico:
             "tesseract-sauvola": MotorTesseract("sauvola"),
             "tesseract-sauvola-unpaper": MotorTesseract("sauvola", limpar=True),
             "kraken-catmus": MotorKraken(self.config.kraken, self.config.caminhos.kraken),
+            "kraken-catmus-regioes": MotorPosicionado(
+                ReconhecedorKraken(self.config.kraken, self.config.caminhos.kraken), self.config.regioes
+            ),
             "tesseract-otsu-reserva-sauvola": MotorComReserva(
                 MotorTesseract("otsu"), MotorTesseract("sauvola"), self.config.extracao.minimo_de_caracteres_por_pagina
             ),

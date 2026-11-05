@@ -10,9 +10,11 @@ from unittest import mock
 from apoio import LeitorFalso, ReconhecedorFalso
 
 from rag.clientes import pdf as clientes_pdf
-from rag.config import ConfigExtracao
+from rag.config import Config, ConfigExtracao, ConfigKraken, ConfigRegioes
 from rag.erros import ErroConfiguracao, ErroPipeline, ErroPreRequisito
 from rag.etapas import extracao
+from rag.servico import Servico
+from rag.texto_posicionado import ler_page_xml
 
 TEXTO_BOM = "Página com camada de texto digital, longa o bastante."
 
@@ -250,6 +252,141 @@ def _processo(stdout: str = "", returncode: int = 0, stderr: str = "") -> subpro
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
+class TestTextoPosicionadoNaExtracao(unittest.TestCase):
+    """Com um motor que dá coordenadas: PAGE XML por página e `.txt` derivado sem o carimbo."""
+
+    def setUp(self):
+        self._temporario = tempfile.TemporaryDirectory()
+        raiz = Path(self._temporario.name)
+        self.exportacao, self.saida = raiz / "exportacao", raiz / "texto"
+        self.config = ConfigExtracao(minimo_de_caracteres_por_pagina=10)
+        criar_item(self.exportacao, "item_000", "123/9", "misto.pdf\n", {"misto.pdf": b"misto"})
+        self.leitor = LeitorFalso({"misto.pdf": ["", TEXTO_BOM, ""]})
+        self.reconhecedor = ReconhecedorFalso(posicionado=True)
+        self.paginas = self.saida / "123_9" / "misto.pdf.paginas"
+
+    def tearDown(self):
+        self._temporario.cleanup()
+
+    def executar(self, **opcoes):
+        return extracao.executar(self.config, self.exportacao, self.saida, self.leitor, self.reconhecedor, **opcoes)
+
+    def test_grava_o_page_de_cada_pagina_do_ocr(self):
+        resultado = self.executar()
+        self.assertEqual(sorted(p.name for p in self.paginas.iterdir()), ["pagina_0001.ocr.xml", "pagina_0003.ocr.xml"])
+        self.assertEqual(resultado.detalhes["paginas_posicionadas"], 2)
+        self.assertEqual(
+            ler_page_xml(self.paginas.joinpath("pagina_0001.ocr.xml").read_bytes()).contagem_por_tipo(),
+            {"texto": 1, "carimbo": 2},
+        )
+
+    def test_o_txt_sai_das_regioes_sem_o_carimbo(self):
+        self.executar()
+        paginas = (self.saida / "123_9" / "misto.pdf.txt").read_text(encoding="utf-8").split("\f")
+        self.assertEqual(
+            paginas,
+            [
+                "Texto reconhecido da página 1 com acentuação.",
+                TEXTO_BOM,
+                "Texto reconhecido da página 3 com acentuação.",
+            ],
+        )
+
+    def test_registro_traz_as_regioes_e_as_regras(self):
+        self.executar(regioes=ConfigRegioes(zona_do_carimbo=0.2))
+        registro = json.loads((self.saida / "123_9" / "misto.pdf.json").read_text(encoding="utf-8"))
+        self.assertEqual(registro["paginas_posicionadas"], [1, 3])
+        self.assertEqual(registro["linhas_por_tipo"], {"carimbo": 4, "texto": 2})
+        self.assertEqual(registro["regras_de_regiao"]["zona_do_carimbo"], 0.2)
+
+    def test_refazer_troca_o_page_do_ocr_e_preserva_o_revisado(self):
+        self.executar()
+        (self.paginas / "pagina_0009.ocr.xml").write_text("velho", encoding="utf-8")
+        (self.paginas / "pagina_0001.revisada.xml").write_text("revisão", encoding="utf-8")
+        self.executar(refazer=True)
+        nomes = sorted(p.name for p in self.paginas.iterdir())
+        self.assertEqual(nomes, ["pagina_0001.ocr.xml", "pagina_0001.revisada.xml", "pagina_0003.ocr.xml"])
+
+    def test_motor_sem_coordenadas_nao_grava_page(self):
+        self.reconhecedor.posicionado = False
+        self.executar()
+        self.assertFalse(self.paginas.exists())
+
+
+class TestReconhecedorKraken(unittest.TestCase):
+    """Lotes de páginas numa execução do container, com `pdftoppm` e `podman` simulados."""
+
+    PAGE = (
+        '<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15">'
+        '<Page imageFilename="p.png" imageWidth="10" imageHeight="20"><TextRegion id="r" custom="type {{type:text;}}">'
+        '<Coords points="0,0 9,19"/><TextLine id="l"><Coords points="0,0 9,5"/>'
+        "<TextEquiv><Unicode>{}</Unicode></TextEquiv></TextLine></TextRegion></Page></PcGts>"
+    )
+
+    def setUp(self):
+        self._temporario = tempfile.TemporaryDirectory()
+        self.modelos = Path(self._temporario.name)
+        (self.modelos / "m.mlmodel").write_bytes(b"x")
+        self.config = ConfigKraken(modelo="m.mlmodel", paginas_por_chamada=2)
+
+    def tearDown(self):
+        self._temporario.cleanup()
+
+    def _simular(self):
+        chamadas = []
+
+        def falso(comando, **_):
+            if comando[0] == "podman":
+                chamadas.append(comando)
+                pasta = Path(next(v.split(":")[0] for v in comando if v.endswith(":/trabalho:Z")))
+                saidas = [comando[i + 2] for i, v in enumerate(comando) if v == "-i"]
+                for saida in saidas:
+                    (pasta / saida).write_text(self.PAGE.format(saida), encoding="utf-8")
+            return _processo()
+
+        return falso, chamadas
+
+    def test_manda_as_paginas_em_lotes_e_le_o_page(self):
+        falso, chamadas = self._simular()
+        with mock.patch.object(clientes_pdf.subprocess, "run", side_effect=falso):
+            paginas = clientes_pdf.ReconhecedorKraken(self.config, self.modelos).reconhecer(Path("doc.pdf"), [1, 4, 7])
+        self.assertEqual(len(chamadas), 2)
+        self.assertIn("-x", chamadas[0])
+        self.assertEqual(chamadas[0].count("-i"), 2)
+        self.assertEqual(sorted(paginas), [1, 4, 7])
+        self.assertEqual(paginas[4].regioes[0].linhas[0].texto, "pagina_0004.xml")
+        self.assertTrue(paginas[7].tem_posicao)
+
+    def test_modelo_ausente_falha_antes_de_rasterizar(self):
+        (self.modelos / "m.mlmodel").unlink()
+        with mock.patch.object(clientes_pdf.subprocess, "run") as rodar:
+            with self.assertRaises(ErroConfiguracao):
+                clientes_pdf.ReconhecedorKraken(self.config, self.modelos).reconhecer(Path("doc.pdf"), [1])
+        rodar.assert_not_called()
+
+    def test_saida_faltando_e_erro_do_documento(self):
+        def sem_saida(comando, **_):
+            return _processo()
+
+        with mock.patch.object(clientes_pdf.subprocess, "run", side_effect=sem_saida):
+            with self.assertRaises(ErroPipeline) as contexto:
+                clientes_pdf.ReconhecedorKraken(self.config, self.modelos).reconhecer(Path("doc.pdf"), [3])
+        self.assertNotIsInstance(contexto.exception, ErroConfiguracao)
+        self.assertIn("páginas 3–3", str(contexto.exception))
+
+
+class TestEscolhaDoMotor(unittest.TestCase):
+    def test_kraken_e_o_padrao_e_ocrmypdf_continua_disponivel(self):
+        self.assertIsInstance(Servico(Config()).reconhecedor, clientes_pdf.ReconhecedorKraken)
+        config = Config(extracao=ConfigExtracao(motor="ocrmypdf"))
+        self.assertIsInstance(Servico(config).reconhecedor, clientes_pdf.ReconhecedorOcrmypdf)
+
+    def test_motor_desconhecido_explica_as_opcoes(self):
+        with self.assertRaises(ErroConfiguracao) as contexto:
+            _ = Servico(Config(extracao=ConfigExtracao(motor="tesseract"))).reconhecedor
+        self.assertIn("kraken", contexto.exception.sugestao)
+
+
 class TestLeitorPoppler(unittest.TestCase):
     """O parsing da saída do Poppler, com `subprocess.run` substituído."""
 
@@ -292,7 +429,7 @@ class TestReconhecedorOcrmypdf(unittest.TestCase):
     def test_devolve_so_as_paginas_pedidas(self):
         falso = self._rodar_com_sidecar("[OCR skipped on page 1]\fsegunda\f[OCR skipped on page 3]\fquarta")
         with mock.patch.object(clientes_pdf.subprocess, "run", side_effect=falso):
-            textos = self.reconhecedor.reconhecer(Path("doc.pdf"), [2, 4])
+            textos = self.reconhecedor.reconhecer_texto(Path("doc.pdf"), [2, 4])
         self.assertEqual(textos, {2: "segunda", 4: "quarta"})
         self.assertIn("2,4", falso.comando)
         self.assertEqual(falso.comando[falso.comando.index("--jobs") + 1], "2")
@@ -319,13 +456,13 @@ class TestReconhecedorOcrmypdf(unittest.TestCase):
         falso = self._rodar_com_sidecar("", returncode=clientes_pdf.SAIDA_DEPENDENCIA_AUSENTE)
         with mock.patch.object(clientes_pdf.subprocess, "run", side_effect=falso):
             with self.assertRaises(ErroConfiguracao):
-                self.reconhecedor.reconhecer(Path("doc.pdf"), [1])
+                self.reconhecedor.reconhecer_texto(Path("doc.pdf"), [1])
 
     def test_outra_falha_e_erro_do_documento(self):
         falso = self._rodar_com_sidecar("", returncode=7)
         with mock.patch.object(clientes_pdf.subprocess, "run", side_effect=falso):
             with self.assertRaises(ErroPipeline) as contexto:
-                self.reconhecedor.reconhecer(Path("doc.pdf"), [1])
+                self.reconhecedor.reconhecer_texto(Path("doc.pdf"), [1])
         self.assertNotIsInstance(contexto.exception, ErroConfiguracao)
 
     def test_identificacao_traz_as_duas_versoes(self):

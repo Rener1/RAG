@@ -32,14 +32,16 @@ que não entram pelo `pip`:
 sudo dnf install ocrmypdf tesseract tesseract-langpack-por tesseract-osd poppler-utils
 ```
 
-O Kraken, motor de OCR em avaliação, roda num container próprio:
+O Kraken, o motor de OCR padrão da extração, roda num container próprio, chamado pelo `podman` do
+host (por isso a extração com ele roda fora do container `rag`):
 
 ```bash
 podman build -t rag-kraken -f Containerfile.kraken .
 podman run --rm -v ./data/kraken:/modelos:Z rag-kraken get 10.5281/zenodo.10592716   # modelo CATMuS-Print
 ```
 
-`tesseract-osd` é o que corrige página digitalizada de cabeça para baixo. `main.py ambiente`
+O OCRmyPDF continua como alternativa (`extracao.motor = "ocrmypdf"`), só texto, sem texto
+posicionado. `tesseract-osd` é o que corrige página digitalizada de cabeça para baixo. `main.py ambiente`
 diz se falta algum deles. A imagem do container já os traz.
 
 Use **podman**, não docker — em muitas distros `docker` já é o shim dele. O

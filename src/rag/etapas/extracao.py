@@ -3,7 +3,10 @@ Extração do texto dos PDFs do acervo, com OCR só onde falta texto.
 
 Lê a exportação do DSpace em pastas por item (Simple Archive Format) e grava,
 para cada PDF, o texto em `data/texto_acervo/<handle>/<arquivo>.txt` e o
-registro da extração num `.json` ao lado.
+registro da extração num `.json` ao lado. Página que passou por OCR com
+coordenadas ganha também o texto posicionado, em
+`<arquivo>.paginas/pagina_NNNN.ocr.xml`: é o mestre, e a linha da página no
+`.txt` é derivada dele, sem as regiões de carimbo e ruído.
 
 Não se gera PDF novo. O pipeline só consome texto, e a citação aponta para o
 PDF original no repositório, pelo handle — um PDF pesquisável nosso ficaria em
@@ -24,17 +27,28 @@ import json
 import os
 import unicodedata
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..config import ConfigExtracao
+from ..config import ConfigExtracao, ConfigRegioes
 from ..erros import ErroConfiguracao, ErroPreRequisito
 from ..modelos import ResultadoEtapa
 from ..protocolos import LeitorDePdf, ReconhecedorOptico
+from ..texto_posicionado import (
+    PaginaPosicionada,
+    classificar_regioes,
+    escrever_page_xml,
+    texto_da_pagina,
+    tipos_ignorados,
+)
 from . import RelatorProgresso, sem_progresso
 
 SEPARADOR_DE_PAGINA = "\f"
+
+# Sufixo do texto posicionado que o OCR produz. O revisado, que virá do
+# eScriptorium, terá outro sufixo, e a re-extração nunca o apaga.
+SUFIXO_DO_OCR = ".ocr.xml"
 
 # Bundle em que o DSpace guarda o arquivo depositado. Os outros são derivados
 # dele (TEXT é o texto que o próprio DSpace extraiu, THUMBNAIL a miniatura) ou
@@ -184,8 +198,15 @@ def extrair_pdf(
     leitor: LeitorDePdf,
     reconhecedor: ReconhecedorOptico,
     sha256: str,
-) -> tuple[str, dict]:
-    """Texto de um PDF, com as páginas separadas por `\\f`, e o registro da extração."""
+    regioes: ConfigRegioes | None = None,
+) -> tuple[str, dict, dict[int, PaginaPosicionada]]:
+    """Texto de um PDF, com as páginas separadas por `\\f`, o registro e o texto posicionado.
+
+    O texto posicionado volta só das páginas que ficaram com o OCR e têm
+    coordenadas, já com as regras de região aplicadas.
+    """
+    regioes = regioes or ConfigRegioes()
+    ignorar = tipos_ignorados(regioes)
     paginas = [normalizar_pagina(t) for t in leitor.textos_das_paginas(pdf.caminho)]
     sem_texto = [
         n
@@ -197,13 +218,21 @@ def extrair_pdf(
     # texto. Folha de rosto e abertura de capítulo são curtas e digitais: o
     # OCR as reconheceria do zero, e trocaria texto exato por texto provável.
     paginas_ocr: list[int] = []
+    posicionadas: dict[int, PaginaPosicionada] = {}
     if sem_texto:
         reconhecidas = reconhecedor.reconhecer(pdf.caminho, sem_texto)
         for numero in sem_texto:
-            reconhecida = normalizar_pagina(reconhecidas.get(numero, ""))
+            pagina = reconhecidas.get(numero)
+            if pagina is None:
+                continue
+            if pagina.tem_posicao:
+                pagina = classificar_regioes(pagina, regioes)
+            reconhecida = normalizar_pagina(texto_da_pagina(pagina, ignorar))
             if _caracteres_uteis(reconhecida) > _caracteres_uteis(paginas[numero - 1]):
                 paginas[numero - 1] = reconhecida
                 paginas_ocr.append(numero)
+                if pagina.tem_posicao:
+                    posicionadas[numero] = pagina
 
     registro: dict = {
         "handle": pdf.handle,
@@ -223,6 +252,12 @@ def extrair_pdf(
         registro["ocr_ferramenta"] = identificacao.get("ferramenta", "")
         registro["ocr_versao"] = identificacao.get("versao", "")
         registro["ocr_parametros"] = identificacao.get("parametros", "")
+    if posicionadas:
+        # As regras entram no registro porque mudam o `.txt`: com outras, o
+        # mesmo PAGE XML daria outro texto.
+        registro["paginas_posicionadas"] = sorted(posicionadas)
+        registro["linhas_por_tipo"] = _somar_contagens(p.contagem_por_tipo() for p in posicionadas.values())
+        registro["regras_de_regiao"] = asdict(regioes)
 
     # Abaixo do mínimo mesmo depois do OCR: página em branco, página curta de
     # verdade, ou imagem que o OCR não leu. Só um olho humano distingue as
@@ -235,7 +270,30 @@ def extrair_pdf(
     if vazias:
         registro["paginas_abaixo_do_minimo"] = vazias
 
-    return SEPARADOR_DE_PAGINA.join(paginas), registro
+    return SEPARADOR_DE_PAGINA.join(paginas), registro, posicionadas
+
+
+def _somar_contagens(contagens) -> dict[str, int]:
+    total: dict[str, int] = {}
+    for contagem in contagens:
+        for tipo, linhas in contagem.items():
+            total[tipo] = total.get(tipo, 0) + linhas
+    return dict(sorted(total.items()))
+
+
+def pasta_das_paginas(destino: Path, arquivo: str) -> Path:
+    return destino / f"{arquivo}.paginas"
+
+
+def _gravar_paginas(pasta: Path, posicionadas: dict[int, PaginaPosicionada], criador: str) -> None:
+    """Troca o texto posicionado do OCR pelo novo. Só o do OCR: o revisado fica."""
+    if pasta.is_dir():
+        for antigo in pasta.glob(f"*{SUFIXO_DO_OCR}"):
+            antigo.unlink()
+    if posicionadas:
+        pasta.mkdir(parents=True, exist_ok=True)
+    for numero, pagina in sorted(posicionadas.items()):
+        _gravar_atomico(pasta / f"pagina_{numero:04d}{SUFIXO_DO_OCR}", escrever_page_xml(pagina, criador))
 
 
 def executar(
@@ -247,6 +305,7 @@ def executar(
     *,
     refazer: bool = False,
     documentos: list[str] | None = None,
+    regioes: ConfigRegioes | None = None,
     progresso: RelatorProgresso = sem_progresso,
 ) -> ResultadoEtapa:
     """Extrai todos os PDFs da exportação. Seguro de repetir: pula o que já foi extraído.
@@ -282,6 +341,7 @@ def executar(
         "ocr": 0,
         "paginas_ocr": 0,
         "paginas_abaixo_do_minimo": 0,
+        "paginas_posicionadas": 0,
         "pasta": pasta_saida,
     }
 
@@ -295,10 +355,13 @@ def executar(
             if not refazer and arquivo_texto.is_file() and _ja_extraido(arquivo_registro, sha256):
                 resultado.ignorados += 1
             else:
-                texto, registro = extrair_pdf(pdf, config, leitor, reconhecedor, sha256)
+                texto, registro, posicionadas = extrair_pdf(pdf, config, leitor, reconhecedor, sha256, regioes)
                 destino.mkdir(parents=True, exist_ok=True)
                 # O registro vai por último: é ele que marca o documento como
-                # pronto, então uma interrupção entre os dois refaz o documento.
+                # pronto, então uma interrupção antes dele refaz o documento.
+                _gravar_paginas(
+                    pasta_das_paginas(destino, pdf.arquivo), posicionadas, registro.get("ocr_ferramenta", "rag")
+                )
                 _gravar_atomico(arquivo_texto, texto)
                 _gravar_atomico(arquivo_registro, json.dumps(registro, ensure_ascii=False, indent=2) + "\n")
 
@@ -306,6 +369,7 @@ def executar(
                 resultado.detalhes[registro["origem_do_texto"]] += 1
                 resultado.detalhes["paginas_ocr"] += len(registro.get("paginas_ocr", []))
                 resultado.detalhes["paginas_abaixo_do_minimo"] += len(registro.get("paginas_abaixo_do_minimo", []))
+                resultado.detalhes["paginas_posicionadas"] += len(registro.get("paginas_posicionadas", []))
         except ErroConfiguracao:
             # Falta o OCR ou o idioma: falharia igual em todos os documentos.
             raise

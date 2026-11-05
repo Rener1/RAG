@@ -7,6 +7,7 @@ devolve um estado e uma sugestão de conserto; nada é corrigido automaticamente
 """
 
 import shutil
+import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -172,6 +173,32 @@ def verificar(config: Config) -> list[Verificacao]:
     return itens
 
 
+def _verificar_kraken(config: Config) -> Verificacao:
+    """O motor padrão da extração roda no container `rag-kraken`, com o modelo em `data/kraken`."""
+    kraken = config.kraken
+    if not shutil.which("podman"):
+        return Verificacao(
+            "OCR (Kraken)", Estado.AVISO, "podman não encontrado", "A extração com Kraken roda no host, com podman."
+        )
+    imagem = subprocess.run(["podman", "image", "exists", kraken.imagem], capture_output=True)
+    if imagem.returncode != 0:
+        return Verificacao(
+            "OCR (Kraken)",
+            Estado.AVISO,
+            f"imagem {kraken.imagem} ausente",
+            "podman build -t rag-kraken -f Containerfile.kraken .",
+        )
+    modelo = config.caminhos.kraken / kraken.modelo
+    if not modelo.is_file():
+        return Verificacao(
+            "OCR (Kraken)",
+            Estado.AVISO,
+            f"modelo ausente: {modelo.name}",
+            f"podman run --rm -v ./data/kraken:/modelos:Z {kraken.imagem} get 10.5281/zenodo.10592716",
+        )
+    return Verificacao("OCR (Kraken)", Estado.OK, f"{kraken.imagem}, modelo {modelo.name}")
+
+
 def _verificar_extracao(config: Config, servico: Servico) -> list[Verificacao]:
     """Ferramentas e artefatos da extração do acervo.
 
@@ -191,6 +218,9 @@ def _verificar_extracao(config: Config, servico: Servico) -> list[Verificacao]:
             INSTALACAO if ausentes else "",
         )
     )
+
+    if config.extracao.motor == "kraken":
+        itens.append(_verificar_kraken(config))
 
     idiomas = idiomas_do_tesseract()
     if idiomas is not None:

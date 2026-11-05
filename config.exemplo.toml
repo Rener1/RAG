@@ -39,11 +39,14 @@
 # idioma = "por"
 # minimo_de_caracteres_por_pagina = 50
 # processos = 0
+# motor = "kraken"
 
 # Kraken, o motor de OCR do eScriptorium, no container `rag-kraken` (Containerfile.kraken).
 [kraken]
 # imagem = "localhost/rag-kraken"
 # modelo = "htrmopo/d96caf7a-122e-5576-ab2b-a246c4e64221/catmus-print-fondue-large.mlmodel"
+# paginas_por_chamada = 20
+# dpi = 300
 
 # Regras que dão tipo às regiões do texto posicionado (carimbo, ruído dos furos).
 [regioes]
@@ -55,6 +58,7 @@
 # minimo_de_linhas_do_carimbo = 2
 # marcar_ruido = true
 # maximo_de_caracteres_do_ruido = 3
+# margem_do_ruido = 0.07
 
 # Corte dos documentos em trechos.
 [chunking]

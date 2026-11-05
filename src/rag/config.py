@@ -125,6 +125,10 @@ class ConfigExtracao:
     # dígitos, para número de página e lixo de camada de texto não contarem.
     minimo_de_caracteres_por_pagina: int = 50
     processos: int = 0  # 0 = todos os núcleos; o paralelismo é por página, dentro do OCR
+    # "kraken" desde 2026-11-04: CER de 7,1% contra 35,9% do OCRmyPDF em 5 páginas do
+    # acervo, e é o motor do eScriptorium (docs/engenharia/medicoes.md). Grava o texto
+    # posicionado (PAGE XML) de cada página. "ocrmypdf" continua disponível, só texto.
+    motor: str = "kraken"
 
 
 @dataclass
@@ -137,6 +141,11 @@ class ConfigKraken:
     # as quatro línguas do acervo; baixe com
     # `podman run --rm -v ./data/kraken:/modelos:Z rag-kraken get 10.5281/zenodo.10592716`.
     modelo: str = "htrmopo/d96caf7a-122e-5576-ab2b-a246c4e64221/catmus-print-fondue-large.mlmodel"
+    # Páginas por execução do container. Cada execução carrega o modelo de novo
+    # (a maior parte dos ~15 s por página medidos uma a uma), e cada página
+    # rasterizada a 300 dpi ocupa 1–3 MB no /tmp, que no Fedora fica em memória.
+    paginas_por_chamada: int = 20
+    dpi: int = 300
 
 
 @dataclass
@@ -166,6 +175,9 @@ class ConfigRegioes:
     # Região em que toda linha tem até isto de letras e números é ruído (furos de
     # encadernação lidos como "E", "3", "D2"). O número de página é tratado à parte.
     maximo_de_caracteres_do_ruido: int = 3
+    # Faixa de cada lado da página, em fração da largura, em que fragmento é furo.
+    # No 7891/1133 as linhas dos furos terminam antes de 5% da largura.
+    margem_do_ruido: float = 0.07
 
 
 @dataclass

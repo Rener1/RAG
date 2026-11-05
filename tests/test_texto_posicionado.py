@@ -219,6 +219,27 @@ class TestRuido(unittest.TestCase):
     def test_desligado_nao_mexe(self) -> None:
         self.assertEqual(marcar_ruido(_pagina(self.MARGEM), ConfigRegioes(marcar_ruido=False)), _pagina(self.MARGEM))
 
+    def test_fragmento_na_margem_sai_da_regiao_do_corpo(self) -> None:
+        def em(id_: str, texto: str, x0: int, x1: int) -> Linha:
+            return Linha(id_, texto, contorno=((x0, 500), (x1, 500), (x1, 540), (x0, 540)))
+
+        corpo = Regiao(
+            "c",
+            TIPO_TEXTO,
+            linhas=(
+                em("f1", "E", 10, 60),  # furo à esquerda
+                em("t1", "Os Círculos de Pais e Professores", 100, 900),
+                em("a1", "Pu4", 300, 600),  # fragmento fora da margem: anotação, fica
+                em("f2", "3", 950, 990),  # furo à direita
+                em("n1", "12", 10, 50),  # dígitos soltos na margem também são furo
+            ),
+        )
+        pagina = marcar_ruido(_pagina(corpo), ConfigRegioes())
+        self.assertEqual(
+            [(r.tipo, [linha.id for linha in r.linhas]) for r in pagina.regioes],
+            [(TIPO_TEXTO, ["t1", "a1"]), (TIPO_RUIDO, ["f1", "f2", "n1"])],
+        )
+
     def test_classificar_aplica_as_duas_regras(self) -> None:
         pagina = classificar_regioes(_pagina(self.MARGEM, CORPO), ConfigRegioes())
         self.assertEqual([r.tipo for r in pagina.regioes], [TIPO_RUIDO, TIPO_TEXTO, TIPO_CARIMBO])

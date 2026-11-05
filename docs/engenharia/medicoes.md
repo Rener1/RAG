@@ -254,7 +254,8 @@ Média por motor, cada página pesando igual:
 | `tesseract-sauvola` | 14,7% | 25,5% | 23,5% | 20,9% | 7,5% | 1,1 |
 | `tesseract-sauvola-unpaper` | 15,3% | 25,1% | 23,1% | 19,3% | 7,3% | 3,5 |
 | `tesseract-otsu-reserva-sauvola` | 12,5% | 21,3% | 19,7% | 17,6% | 6,5% | 1,1 |
-| **`kraken-catmus`** (CATMuS-Print Large) | **7,1%** | 17,3% | **12,4%** | 17,2% | 5,7% | 14,6 |
+| `kraken-catmus` (CATMuS-Print Large, texto puro) | 7,1% | 17,3% | 12,4% | 17,2% | 5,7% | 14,6 |
+| **`kraken-catmus-regioes`** (o mesmo, com as regras de região) | **1,4%** | **9,4%** | **4,0%** | **9,3%** | 5,4% | 14,7 |
 
 CER por página dos três que importam:
 
@@ -289,17 +290,24 @@ O que os números dizem:
   dúvida de leitura. Esses o dicionário pega (`circulos`, `opinioes` não existem). A nota de
   qualidade soma os dois sinais palavra a palavra; nenhum basta sozinho, e nenhum pega acento
   perdido que forma outra palavra válida. O ALTO sai da mesma execução, com `-a` no lugar do texto.
-- **O tempo do Kraken é quase todo partida de container**, que acontece uma vez por página na
-  avaliação. Na extração, mandar o documento inteiro de uma vez corta a maior parte disso.
+- **O tempo do Kraken é reconhecimento em CPU, não partida de container.** Na extração, com as 4
+  páginas do 7891/1133 numa execução só, foram 49 s, ~12 s por página contra 14,6 s uma a uma: a
+  partida e a carga do modelo custam ~3 s. As 238 páginas que a extração atual manda ao OCR levariam
+  ~48 min. A GPU (ROCm) é o que reduziria isso, e fica para quando o volume pedir.
 
-**Regiões com tipo (2026-11-04).** No PAGE XML que o Kraken escreve para a 7891/1133 p. 2, a
-regra de ruído marcou as 39 linhas dos furos (a região estreita da margem), e a de carimbo tirou as
-4 linhas do carimbo da região do corpo, onde o segmentador as tinha posto. O texto derivado das
-regiões erra **1,8%** dos caracteres contra a referência, e o texto puro do Kraken na mesma página,
-**10,5%**. O PAGE regravado sem glifos tem 241 KB, contra 830 KB do original. Uma página só: o
-número mostra a ordem de grandeza da limpeza, não a taxa do acervo. Reproduz-se com o PAGE gerado
-por `kraken -x` e `rag.texto_posicionado.classificar_regioes`. Vira comando quando a extração usar
-o texto posicionado.
+**Regiões com tipo (2026-11-04).** `kraken-catmus-regioes` é o texto que a extração grava: o PAGE
+XML do Kraken com as regras de região aplicadas (carimbo, furos, número de página). Ele leva o
+Kraken de 7,1% para **1,4%** de CER. O ganho é quase todo das páginas datilografadas do 7891/1133 e
+do 7891/1129, onde o ruído dos furos e o carimbo eram o grosso do erro (p. 2: 10,5% → 1,8%; p. 4,
+a do P11: 15,6% → 1,9%). Nas páginas sem furo nem carimbo o número não muda, e em nenhuma página
+subiu: nesta amostra a regra não apagou texto legítimo.
+
+O segmentador ora separa os furos numa região estreita da margem, ora os deixa **dentro** da região
+do corpo (no 7891/1133, p. 2 de um jeito, pp. 1, 3 e 4 do outro). Só a regra por região deixava
+3,3% na p. 4; a regra por linha, que tira o fragmento encostado na margem, levou a 1,9%. As
+anotações a caneta do alto da p. 1 também são fragmentos, mas ficam no meio da página e não são
+tocadas: são o P7, decisão de revisão. O PAGE regravado sem glifos tem 241 KB por página, contra
+830 KB do que o Kraken escreve. Reproduz com `python3 main.py avaliar-ocr --gerar kraken-catmus-regioes`.
 
 O texto extraído hoje (Tesseract) tem, em duas páginas, a linha do e-mail do carimbo **colada** ao
 começo do texto (`…paulofreire.orgO Encontro`). Linha assim não se parece com o carimbo nem com o

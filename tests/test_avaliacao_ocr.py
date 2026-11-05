@@ -7,12 +7,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import apoio  # noqa: F401  (ajusta o sys.path)
+from apoio import ReconhecedorFalso
 
 from rag import avaliacao_ocr
 from rag.clientes import pdf as clientes_pdf
 from rag.clientes.pdf import confianca_media_do_tsv
-from rag.config import ConfigKraken
+from rag.config import ConfigKraken, ConfigRegioes
 from rag.erros import ErroConfiguracao
 from rag.modelos import LeituraDoMotor
 
@@ -234,6 +234,19 @@ class TestMotorKraken(unittest.TestCase):
             with self.assertRaises(ErroConfiguracao) as contexto:
                 clientes_pdf.MotorKraken(self.config, self.modelos)(Path("doc.pdf"), 1, "por")
         self.assertIn("Containerfile.kraken", contexto.exception.sugestao)
+
+
+class TestMotorPosicionado(unittest.TestCase):
+    def test_mede_o_texto_derivado_das_regioes(self):
+        motor = avaliacao_ocr.MotorPosicionado(ReconhecedorFalso(posicionado=True), ConfigRegioes())
+        self.assertEqual(motor(Path("doc.pdf"), 2, "por").texto, "Texto reconhecido da página 2 com acentuação.")
+
+    def test_regras_desligadas_deixam_o_carimbo(self):
+        regioes = ConfigRegioes(marcar_carimbo=False)
+        leitura = avaliacao_ocr.MotorPosicionado(ReconhecedorFalso(posicionado=True), regioes)(
+            Path("doc.pdf"), 2, "por"
+        )
+        self.assertIn("INSTITUTO PAULO FREIRE", leitura.texto)
 
 
 class TestConfiancaDoTsv(unittest.TestCase):

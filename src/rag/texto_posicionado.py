@@ -89,6 +89,23 @@ class PaginaPosicionada:
     imagem: str = ""
     regioes: tuple[Regiao, ...] = ()
 
+    @property
+    def tem_posicao(self) -> bool:
+        """Falso para o texto de um motor que não dá coordenadas (OCRmyPDF)."""
+        return self.largura > 0 and self.altura > 0
+
+    def confianca_media(self, ignorar: frozenset[str] = frozenset()) -> float | None:
+        """Média da confiança das palavras, fora as regiões ignoradas. `None` sem nenhuma."""
+        valores = [
+            palavra.confianca
+            for regiao in self.regioes
+            if regiao.tipo not in ignorar
+            for linha in regiao.linhas
+            for palavra in linha.palavras
+            if palavra.confianca is not None
+        ]
+        return sum(valores) / len(valores) if valores else None
+
     def contagem_por_tipo(self) -> dict[str, int]:
         """Linhas por tipo de região — o que vai ao registro da extração."""
         contagem: dict[str, int] = {}
@@ -103,6 +120,21 @@ def caixa_de(pontos: tuple[Ponto, ...]) -> Caixa:
     xs = [x for x, _ in pontos]
     ys = [y for _, y in pontos]
     return (min(xs), min(ys), max(xs), max(ys))
+
+
+def pagina_sem_posicao(texto: str) -> PaginaPosicionada:
+    """Embrulha o texto de um motor sem coordenadas: um bloco por região, uma linha por linha.
+
+    `texto_da_pagina` devolve o mesmo texto, com as linhas em branco
+    repetidas reduzidas a uma. Sem coordenadas não há PAGE XML a gravar nem
+    regra de região a aplicar — `tem_posicao` diz isso a quem usa.
+    """
+    blocos = [b for b in re.split(r"\n\s*\n", texto) if b.strip()]
+    regioes = tuple(
+        Regiao(f"r{i}", TIPO_TEXTO, linhas=tuple(Linha(f"r{i}_l{j}", t) for j, t in enumerate(b.splitlines())))
+        for i, b in enumerate(blocos)
+    )
+    return PaginaPosicionada(largura=0, altura=0, regioes=regioes)
 
 
 # ── leitura e escrita do PAGE ─────────────────────────────────────────────
@@ -318,7 +350,7 @@ def separar_carimbo(pagina: PaginaPosicionada, config: ConfigRegioes) -> PaginaP
     a regra errar.
     """
     carimbos = linhas_de_carimbo(config)
-    if not config.marcar_carimbo or not carimbos or not pagina.altura:
+    if not config.marcar_carimbo or not carimbos or not pagina.tem_posicao:
         return pagina
 
     topo_da_zona = pagina.altura * (1 - config.zona_do_carimbo)
@@ -335,41 +367,66 @@ def separar_carimbo(pagina: PaginaPosicionada, config: ConfigRegioes) -> PaginaP
         if len(do_carimbo) < config.minimo_de_linhas_do_carimbo:
             regioes.append(regiao)
             continue
-        restantes = tuple(linha for linha in regiao.linhas if linha not in do_carimbo)
-        if restantes:
-            regioes.append(replace(regiao, linhas=restantes))
-        regioes.append(Regiao(f"{regiao.id}_carimbo", TIPO_CARIMBO, _contorno_retangular(do_carimbo), do_carimbo))
+        regioes += _mover_linhas(regiao, do_carimbo, TIPO_CARIMBO)
     return replace(pagina, regioes=tuple(regioes))
+
+
+def _mover_linhas(regiao: Regiao, linhas: tuple[Linha, ...], tipo: str) -> list[Regiao]:
+    """A região sem as linhas, seguida de uma região nova do `tipo` só com elas."""
+    restantes = tuple(linha for linha in regiao.linhas if linha not in linhas)
+    nova = Regiao(f"{regiao.id}_{tipo}", tipo, _contorno_retangular(linhas), linhas)
+    return [replace(regiao, linhas=restantes), nova] if restantes else [nova]
 
 
 _NUMERO_DE_PAGINA = re.compile(r"^\W*\d{1,4}\W*$")
 
 
-def marcar_ruido(pagina: PaginaPosicionada, config: ConfigRegioes) -> PaginaPosicionada:
-    """Marca a região feita só de fragmentos, e a de número de página.
+def _fragmento(texto: str, config: ConfigRegioes) -> bool:
+    # Dígito solto conta: os furos viram "3", "2", "9" com frequência, e o
+    # número de página fica no alto, longe da faixa da margem.
+    return _caracteres_uteis(texto) <= config.maximo_de_caracteres_do_ruido
 
-    Os furos de encadernação saem como uma região estreita na margem, com
-    dezenas de "linhas" de uma ou duas letras (7891/1133). Região em que
-    **toda** linha tem até `maximo_de_caracteres_do_ruido` letras e números,
-    com ao menos três linhas, vira ruído. O número de página é uma linha só
-    de dígitos e pontuação (`-2-`), e é marcado à parte para não ir junto: é
-    a página impressa, que pode servir à citação.
+
+def marcar_ruido(pagina: PaginaPosicionada, config: ConfigRegioes) -> PaginaPosicionada:
+    """Marca o ruído dos furos de encadernação, e a região de número de página.
+
+    Os furos saem como dezenas de "linhas" de uma ou duas letras na margem
+    (7891/1133). O segmentador ora os separa numa região estreita, ora os
+    deixa dentro da região do corpo, e por isso há duas regras:
+
+    - região em que **toda** linha é fragmento (até `maximo_de_caracteres_do_ruido`
+      letras e números), com ao menos três linhas, vira ruído inteira;
+    - dentro das outras, a linha que é fragmento e cabe **inteira** na faixa da
+      margem (`margem_do_ruido`, de cada lado) vai para uma região de ruído.
+      Fragmento fora da margem fica: no 7891/1133 p. 1 é anotação a caneta (P7),
+      que é decisão de revisão, não de regra.
+
+    O número de página é uma linha só de dígitos e pontuação (`-2-`), marcado
+    à parte para não ir junto: é a página impressa, que pode servir à citação.
     """
-    if not config.marcar_ruido:
+    # Sem coordenadas, "região" é só parágrafo, e uma lista numerada (`1.`,
+    # `2.`, `3.`) passaria por furo de encadernação.
+    if not config.marcar_ruido or not pagina.tem_posicao:
         return pagina
 
-    regioes = []
+    esquerda = pagina.largura * config.margem_do_ruido
+    direita = pagina.largura * (1 - config.margem_do_ruido)
+    regioes: list[Regiao] = []
     for regiao in pagina.regioes:
         textos = [linha.texto for linha in regiao.linhas if linha.texto.strip()]
-        if regiao.tipo == TIPO_TEXTO and len(textos) == 1 and _NUMERO_DE_PAGINA.match(textos[0]):
-            regiao = replace(regiao, tipo=TIPO_NUMERO_DE_PAGINA)
-        elif (
-            regiao.tipo == TIPO_TEXTO
-            and len(textos) >= 3
-            and all(_caracteres_uteis(t) <= config.maximo_de_caracteres_do_ruido for t in textos)
-        ):
-            regiao = replace(regiao, tipo=TIPO_RUIDO)
-        regioes.append(regiao)
+        if regiao.tipo != TIPO_TEXTO:
+            regioes.append(regiao)
+        elif len(textos) == 1 and _NUMERO_DE_PAGINA.match(textos[0]):
+            regioes.append(replace(regiao, tipo=TIPO_NUMERO_DE_PAGINA))
+        elif len(textos) >= 3 and all(_caracteres_uteis(t) <= config.maximo_de_caracteres_do_ruido for t in textos):
+            regioes.append(replace(regiao, tipo=TIPO_RUIDO))
+        else:
+            na_margem = tuple(
+                linha
+                for linha in regiao.linhas
+                if _fragmento(linha.texto, config) and (linha.caixa[2] <= esquerda or linha.caixa[0] >= direita)
+            )
+            regioes += _mover_linhas(regiao, na_margem, TIPO_RUIDO) if na_margem else [regiao]
     return replace(pagina, regioes=tuple(regioes))
 
 

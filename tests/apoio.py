@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rag.modelos import Chunk, TrechoRecuperado  # noqa: E402
+from rag.texto_posicionado import Linha, PaginaPosicionada, Regiao, pagina_sem_posicao  # noqa: E402
 
 
 class EmbutidorFalso:
@@ -258,14 +259,27 @@ class ReconhecedorFalso:
     página em branco ou uma digitalização ruim.
     """
 
-    def __init__(self, ilegiveis: set[int] | None = None) -> None:
+    def __init__(self, ilegiveis: set[int] | None = None, posicionado: bool = False) -> None:
         self.ilegiveis = ilegiveis or set()
+        self.posicionado = posicionado  # como o Kraken: com coordenadas e um carimbo no rodapé
         self.pedidos: list[tuple[str, list[int]]] = []
 
     @property
     def identificacao(self) -> dict[str, str]:
         return {"ferramenta": "ocr-falso", "versao": "0.0", "parametros": "-l por"}
 
-    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, str]:
+    def reconhecer(self, caminho: Path, paginas: list[int]) -> dict[int, PaginaPosicionada]:
         self.pedidos.append((caminho.name, list(paginas)))
-        return {n: "" if n in self.ilegiveis else f"Texto reconhecido da página {n} com acentuação." for n in paginas}
+        textos = {n: "" if n in self.ilegiveis else f"Texto reconhecido da página {n} com acentuação." for n in paginas}
+        if not self.posicionado:
+            return {n: pagina_sem_posicao(t) for n, t in textos.items()}
+        return {n: self._posicionada(t) for n, t in textos.items()}
+
+    @staticmethod
+    def _posicionada(texto: str) -> PaginaPosicionada:
+        def linha(id_: str, conteudo: str, y: int) -> Linha:
+            return Linha(id_, conteudo, contorno=((100, y), (900, y), (900, y + 40), (100, y + 40)))
+
+        corpo = (linha("l1", texto, 200),) if texto else ()
+        carimbo = (linha("l2", "INSTITUTO PAULO FREIRE", 1850), linha("l3", "Rua Cerro Corá, 550", 1900))
+        return PaginaPosicionada(1000, 2000, "pagina.png", (Regiao("r1", "texto", linhas=corpo + carimbo),))

@@ -315,8 +315,13 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   Os modelos ficam em `data/kraken/`, montado em `/modelos`. **O torch fica pinado na versão exata
   que o Kraken aceita, vindo do índice de CPU**: sem o pino, o pip trocou o torch de CPU pelo de
   CUDA e a imagem foi de 1,66 GB para 6,4 GB, com bibliotecas NVIDIA numa máquina AMD. O build
-  falha se aparecer pacote `nvidia-`. O CATMuS marca o hífen de fim de linha com `¬`, e o
-  `MotorKraken` o troca por `-`.
+  falha se aparecer pacote `nvidia-`. O CATMuS marca o hífen de fim de linha com `¬`: o PAGE XML o
+  guarda (diz que a palavra continua) e o texto derivado o troca por `-`. **Como é o `podman` do
+  host que chama o Kraken, `main.py extrair` com o motor padrão não roda dentro do container `rag`.**
+- **O segmentador do Kraken nem sempre separa os furos de encadernação.** Ora vêm numa região
+  estreita da margem, ora dentro da região do corpo — no mesmo documento. Por isso a regra de ruído
+  tem dois níveis (região inteira e linha na margem), e o carimbo é tirado linha a linha. Só a regra
+  por região deixava o P11 em 3,3% de CER; com a por linha, 1,9%.
 - **Os padrões ficam em `src/rag/config.py`**, não espalhados pelos módulos e não em `.env`. Por
   cima deles entra o `config.toml` (opcional, gitignored), e por cima dele as flags e o menu.
   Ajuste de menu e de flag vale só para aquela execução até ser gravado com `config --salvar`.
@@ -327,7 +332,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-438 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+451 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,
