@@ -292,8 +292,22 @@ O que os números dizem:
 - **O tempo do Kraken é quase todo partida de container**, que acontece uma vez por página na
   avaliação. Na extração, mandar o documento inteiro de uma vez corta a maior parte disso.
 
-**Pendente:** a sexta página, 7891/1134 p. 1 (P6: colunas e legenda, em espanhol). Falta a
-referência e o `tesseract-langpack-spa`. Cinco páginas são amostra pequena: a medição confirma a
+**Regiões com tipo (2026-11-04).** No PAGE XML que o Kraken escreve para a 7891/1133 p. 2, a
+regra de ruído marcou as 39 linhas dos furos (a região estreita da margem), e a de carimbo tirou as
+4 linhas do carimbo da região do corpo, onde o segmentador as tinha posto. O texto derivado das
+regiões erra **1,8%** dos caracteres contra a referência, e o texto puro do Kraken na mesma página,
+**10,5%**. O PAGE regravado sem glifos tem 241 KB, contra 830 KB do original. Uma página só: o
+número mostra a ordem de grandeza da limpeza, não a taxa do acervo. Reproduz-se com o PAGE gerado
+por `kraken -x` e `rag.texto_posicionado.classificar_regioes`. Vira comando quando a extração usar
+o texto posicionado.
+
+O texto extraído hoje (Tesseract) tem, em duas páginas, a linha do e-mail do carimbo **colada** ao
+começo do texto (`…paulofreire.orgO Encontro`). Linha assim não se parece com o carimbo nem com o
+texto, e a regra não a separa. Se o Kraken também juntar as duas, é o caso que justifica mascarar
+o carimbo na imagem antes do OCR.
+
+**Dispensada:** a sexta página, 7891/1134 p. 1 (P6: colunas e legenda, em espanhol). O P6 é
+problema de região, que se conserta desenhando no eScriptorium, não trocando de motor. Cinco páginas são amostra pequena: a medição confirma a
 direção (Kraken como motor-alvo), não um número para o acervo.
 
 Reproduz com `python3 main.py avaliar-ocr --gerar todos`, com o container `rag-kraken` construído e

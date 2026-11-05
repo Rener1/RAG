@@ -77,6 +77,7 @@ src/rag/
   conversa.py        Conversa — memória entre perguntas: reescreve o seguimento, leva o histórico ao prompt
   avaliacao.py       recall@k contra o gabarito de avaliacao/casos.jsonl
   avaliacao_ocr.py   CER/WER de motores de OCR contra transcrições de referência (data/avaliacao_ocr/, fora do git)
+  texto_posicionado.py  PAGE XML (regiões com tipo, linhas, palavras, confiança) e o texto derivado dele
   acelerador.py      detecta GPU e diz qual build de torch instalar
   lexico.py          BM25 e a fusão dele com a busca densa (desligado por padrão)
   carga.py           limitador de carga: embrulha embutidor, reordenador e gerador de apoio
@@ -326,7 +327,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-411 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+438 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,

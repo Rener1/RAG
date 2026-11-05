@@ -140,6 +140,35 @@ class ConfigKraken:
 
 
 @dataclass
+class ConfigRegioes:
+    """Regras que dão tipo às regiões do texto posicionado (carimbo, ruído dos furos)."""
+
+    # Tipos de região que o texto derivado pula, separados por `|`. O que fica
+    # de fora continua no PAGE XML: tirar um tipo daqui só exige derivar de novo.
+    tipos_ignorados: str = "carimbo|ruido"
+    marcar_carimbo: bool = True
+    # Linhas conhecidas de carimbo, separadas por `|` (a configuração só guarda
+    # escalares). O do IPF aparece em 4 itens da primeira exportação; outra
+    # coleção pode ter outro, e é aqui que ele entra, não no código.
+    carimbos: str = (
+        "INSTITUTO PAULO FREIRE|Rua Cerro Corá, 550 2.º andar cj. 22|"
+        "Tel: (11) 3021-5536 Fax: (11) 3021-5589|05061-100 - São Paulo - SP - Brasil|E-mail: ipf@paulofreire.org"
+    )
+    # Fração de baixo da página em que o carimbo pode estar. Observado em 8 páginas
+    # de dois itens: ele fica nos últimos ~10%, variando ~1 cm de página a página.
+    zona_do_carimbo: float = 0.15
+    # Semelhança mínima com uma linha conhecida (0–1, sem caixa, acento nem
+    # pontuação). Baixa de propósito: o OCR erra o e-mail e os números do telefone.
+    semelhanca_do_carimbo: float = 0.6
+    # O carimbo tem cinco linhas; uma linha parecida sozinha é coincidência.
+    minimo_de_linhas_do_carimbo: int = 2
+    marcar_ruido: bool = True
+    # Região em que toda linha tem até isto de letras e números é ruído (furos de
+    # encadernação lidos como "E", "3", "D2"). O número de página é tratado à parte.
+    maximo_de_caracteres_do_ruido: int = 3
+
+
+@dataclass
 class ConfigChunking:
     """Corte dos documentos em trechos."""
 
@@ -382,6 +411,7 @@ class Config:
     download: ConfigDownload = field(default_factory=ConfigDownload)
     extracao: ConfigExtracao = field(default_factory=ConfigExtracao)
     kraken: ConfigKraken = field(default_factory=ConfigKraken)
+    regioes: ConfigRegioes = field(default_factory=ConfigRegioes)
     chunking: ConfigChunking = field(default_factory=ConfigChunking)
     embedding: ConfigEmbedding = field(default_factory=ConfigEmbedding)
     vetorial: ConfigVetorial = field(default_factory=ConfigVetorial)

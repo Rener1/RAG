@@ -233,7 +233,13 @@ o RAG.
 
 **Ciclo de treino.** Corrige-se algumas dezenas de páginas de uma coleção homogênea, treina-se o
 modelo do Kraken com elas, aplica-se ao resto da coleção e se corrige o que sobrar. É onde mais se
-ganha em datiloscritos do mesmo período.
+ganha em datiloscritos do mesmo período. O ciclo vale para os **dois** modelos do Kraken:
+
+- o de **reconhecimento**, que lê as letras. Na medição, o erro que ele mais comete é o acento
+  perdido, com confiança alta: é viés de treino, e o treino no acervo é o que o corrige;
+- o de **segmentação**, que acha as regiões e linhas e diz de que **tipo** cada região é. Treinado
+  com tipos próprios (texto, carimbo, ruído, legenda, título, manuscrito), ele passa a marcar
+  sozinho o que hoje só se marca à mão ou por regra.
 
 **Custos:**
 
@@ -248,6 +254,6 @@ inicial, não só da revisão. Assim, o modelo treinado no eScriptorium com as p
 volta direto para o OCR de todo o acervo. Até a medição, o melhor caminho medido é o Tesseract com
 Sauvola de reserva.
 
-**Estado:** primeiro se mede se o Kraken e as outras variantes de OCR trazem resultado melhor que
-o atual. Essa medição é o portão das demais fases, descritas no [roadmap](../roadmap.md) §4,
-item 7.
+**Estado:** a medição dos motores, que era o portão, foi feita: o Kraken lidera (CER 7,1% contra
+35,9% da extração atual, ver [medições](../engenharia/medicoes.md)). As fases seguintes estão no
+[roadmap](../roadmap.md) §4, item 7.

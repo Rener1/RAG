@@ -45,6 +45,17 @@
 # imagem = "localhost/rag-kraken"
 # modelo = "htrmopo/d96caf7a-122e-5576-ab2b-a246c4e64221/catmus-print-fondue-large.mlmodel"
 
+# Regras que dão tipo às regiões do texto posicionado (carimbo, ruído dos furos).
+[regioes]
+# tipos_ignorados = "carimbo|ruido"
+# marcar_carimbo = true
+# carimbos = "INSTITUTO PAULO FREIRE|Rua Cerro Corá, 550 2.º andar cj. 22|Tel: (11) 3021-5536 Fax: (11) 3021-5589|05061-100 - São Paulo - SP - Brasil|E-mail: ipf@paulofreire.org"
+# zona_do_carimbo = 0.15
+# semelhanca_do_carimbo = 0.6
+# minimo_de_linhas_do_carimbo = 2
+# marcar_ruido = true
+# maximo_de_caracteres_do_ruido = 3
+
 # Corte dos documentos em trechos.
 [chunking]
 # estrategia = "paragrafo_agrupado"
