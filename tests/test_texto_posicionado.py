@@ -101,6 +101,11 @@ class TestLeituraDoPage(unittest.TestCase):
         self.assertEqual([(p.texto, p.confianca) for p in linha.palavras], [("educa¬", 0.97)])
         self.assertEqual(linha.linha_de_base, ((100, 140), (900, 140)))
 
+    def test_palavra_que_e_so_espaco_e_descartada(self) -> None:
+        espaco = '<Word id="w9"><Coords points="300,100 310,150"/><TextEquiv conf="1.0"><Unicode> </Unicode></TextEquiv></Word>'
+        pagina = ler_page_xml(PAGE_DO_KRAKEN.replace("</Word>", "</Word>" + espaco, 1))
+        self.assertEqual([p.texto for p in pagina.regioes[0].linhas[0].palavras], ["educa¬"])
+
     def test_linha_sem_confianca_fica_none(self) -> None:
         self.assertIsNone(self.pagina.regioes[1].linhas[0].confianca)
 
@@ -129,6 +134,12 @@ class TestEscritaDoPage(unittest.TestCase):
     def test_ida_e_volta_do_que_o_kraken_escreveu(self) -> None:
         pagina = ler_page_xml(PAGE_DO_KRAKEN)
         self.assertEqual(ler_page_xml(escrever_page_xml(pagina)), pagina)
+
+    def test_declara_onde_esta_o_esquema(self) -> None:
+        """O eScriptorium recusa PAGE sem `xsi:schemaLocation`."""
+        xml = escrever_page_xml(_pagina(CORPO))
+        self.assertIn('xsi:schemaLocation="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15 ', xml)
+        self.assertIn("2019-07-15/pagecontent.xsd", xml)
 
     def test_escreve_a_ordem_de_leitura_e_o_tipo_no_custom(self) -> None:
         xml = escrever_page_xml(_pagina(Regiao("b", TIPO_CARIMBO), Regiao("a", TIPO_TEXTO)))

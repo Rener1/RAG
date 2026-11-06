@@ -1,0 +1,111 @@
+# eScriptorium: a mesa de revisão do OCR (docs/acervo/revisao-do-ocr.md §6).
+#
+# Separado do compose.yaml para não pesar em quem só usa o RAG. Baseado no
+# docker-compose.yml da v26.07 (03/09/2026), com quatro diferenças:
+#
+# - versões fixadas: a `latest` do registro é de maio e não tem as correções
+#   de segurança do importador de XML (ESC-2026-004 e -006, agosto);
+# - portas só em 127.0.0.1: o original abre a 8080 e a 5555 para a rede toda;
+# - sem Flower (painel da fila) e sem servidor de e-mail, que o teste não usa;
+# - dados em data/escriptorium/ (fora do git). `static` e `media` são montadas em
+#   vários containers e por isso levam `:z` (rótulo SELinux compartilhado): com
+#   `:Z`, privado, cada container que sobe toma a pasta para si e os outros
+#   ficam sem acesso (PermissionError no upload). Só isso não basta: cada arquivo
+#   novo nasce com as categorias SELinux privadas do container que o criou, e o
+#   worker não lê o XML que o web gravou. Por isso todos os que dividem as pastas
+#   rodam no mesmo nível (`x-mesmo-rotulo`): confinados em relação ao resto do
+#   sistema, legíveis entre si. O banco, de um só, leva `:Z`.
+#
+# Senhas e chave secreta ficam em data/escriptorium/variables.env, gerado uma
+# vez (README, "Revisão do OCR"). Nunca use o variables.env_example oficial:
+# ele traz admin:admin.
+#
+#   podman compose -f compose.escriptorium.yaml up -d
+#   → http://127.0.0.1:8080
+
+# Projeto próprio: sem isto o podman-compose usa o nome da pasta ("rag"), o
+# mesmo do compose.yaml, e um `down` de um derrubaria o outro.
+name: escriptorium
+
+x-mesmo-rotulo: &mesmo-rotulo
+  - label=level:s0:c311,c733
+
+x-app: &app
+  security_opt: *mesmo-rotulo
+  image: registry.gitlab.com/scripta/escriptorium:v26.07
+  env_file: data/escriptorium/variables.env
+  volumes:
+    - ./data/escriptorium/static:/usr/src/app/static:z
+    - ./data/escriptorium/media:/usr/src/app/media:z
+  depends_on:
+    - db
+    - redis
+  command: /bin/true
+
+services:
+  web:
+    <<: *app
+    command: uwsgi --ini /usr/src/app/uwsgi.ini
+    expose:
+      - 8000
+
+  channelserver:
+    <<: *app
+    command: daphne --bind 0.0.0.0 --port 5000 -v 1 escriptorium.asgi:application
+    expose:
+      - 5000
+
+  db:
+    image: docker.io/library/postgres:15
+    env_file: data/escriptorium/variables.env
+    volumes:
+      - ./data/escriptorium/postgres:/var/lib/postgresql/data:Z
+
+  redis:
+    image: docker.io/library/redis:alpine
+
+  nginx:
+    image: registry.gitlab.com/scripta/escriptorium/nginx:v26.07
+    security_opt: *mesmo-rotulo
+    environment:
+      - SERVERNAME=localhost
+    volumes:
+      - ./data/escriptorium/static:/usr/src/app/static:z
+      - ./data/escriptorium/media:/usr/src/app/media:z
+    depends_on:
+      - web
+      - channelserver
+    ports:
+      - 127.0.0.1:8080:80
+
+  # As filas são as do original. A concorrência cai de 10 para 2 por fila: uma
+  # pessoa revisando não precisa de 30 processos, e cada um carrega o Django.
+  celery-main:
+    <<: *app
+    environment:
+      - OMP_NUM_THREADS=1
+    command: "celery -A escriptorium worker -l INFO -E -Ofair --prefetch-multiplier 1 -Q default -c 2 --max-tasks-per-child=10"
+
+  celery-live:
+    <<: *app
+    command: "celery -A escriptorium worker -l INFO -E -Ofair --prefetch-multiplier 1 -Q live -c 2 --max-tasks-per-child=10"
+
+  celery-low-priority:
+    <<: *app
+    command: "celery -A escriptorium worker -l INFO -E -Ofair --prefetch-multiplier 1 -Q low-priority -c 2 --max-tasks-per-child=10"
+
+  # Treino dos modelos do Kraken. Na CPU: a imagem traz torch de CUDA, e a GPU
+  # desta máquina é AMD (o treino na GPU é verificação à parte, roadmap §4).
+  celery-gpu:
+    <<: *app
+    environment:
+      - KRAKEN_TRAINING_DEVICE=cpu
+    command: "celery -A escriptorium worker -l INFO -E -Ofair --prefetch-multiplier 1 -Q gpu -c 1 --max-tasks-per-child=1"
+    shm_size: "3gb"
+
+  celery-intensive-inference:
+    <<: *app
+    environment:
+      - KRAKEN_INFERENCE_DEVICE=cpu
+    command: "celery -A escriptorium worker -l INFO -E -Ofair --prefetch-multiplier 1 -Q intensive-inference -c 1 --max-tasks-per-child=1"
+    shm_size: "3gb"

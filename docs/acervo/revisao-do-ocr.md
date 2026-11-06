@@ -257,3 +257,21 @@ Sauvola de reserva.
 **Estado:** a medição dos motores, que era o portão, foi feita: o Kraken lidera (CER 7,1% contra
 35,9% da extração atual, ver [medições](../engenharia/medicoes.md)). As fases seguintes estão no
 [roadmap](../roadmap.md) §4, item 7.
+
+**Ida e volta conferida (2026-11-05).** O eScriptorium v26.07 sobe por
+`compose.escriptorium.yaml` (README, "Revisão do OCR"). O PAGE XML que a extração grava foi
+importado pela API com as 4 páginas do 7891/1133:
+
+- o eScriptorium criou sozinho, na ontologia do documento, os tipos de região (`texto`,
+  `carimbo`, `ruido`, `numero_de_pagina`);
+- as 238 linhas entraram com o texto idêntico. As 11 vazias não são criadas;
+- exportado de volta sem edição, o PAGE dá diferença zero, e o texto derivado é igual.
+
+Duas limitações dele:
+
+- **a confiança por palavra não é importada**, por um defeito do importador. Ela continua no PAGE
+  que fica em `data/`;
+- o painel visual desenha a letra achatada de propósito. Para revisar, o painel de texto e a
+  janela de transcrição (clique duplo na linha) são melhores.
+
+Os comandos `main.py revisao enviar/baixar` ainda não existem: o teste foi feito por script.

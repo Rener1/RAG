@@ -32,6 +32,10 @@ from .config import ConfigRegioes
 
 NS_PAGE = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15"
 _P = f"{{{NS_PAGE}}}"
+NS_XSI = "http://www.w3.org/2001/XMLSchema-instance"
+# O eScriptorium escolhe o esquema pelo `xsi:schemaLocation` e recusa o arquivo
+# sem ele ("Cannot Find Schema location"), mesmo com o namespace certo.
+LOCAL_DO_ESQUEMA = f"{NS_PAGE} {NS_PAGE}/pagecontent.xsd"
 
 TIPO_TEXTO = "texto"
 TIPO_CARIMBO = "carimbo"
@@ -193,10 +197,15 @@ def ler_page_xml(conteudo: str | bytes) -> PaginaPosicionada:
     for elemento in pagina.iter(_P + "TextRegion"):
         linhas = []
         for linha in elemento.findall(_P + "TextLine"):
+            # O Kraken grava cada espaço como um `Word` de texto " ". O eScriptorium
+            # junta as palavras com espaço para formar a linha, e importaria espaços
+            # triplos; sem elas, a junção reproduz o texto da linha (conferido nas
+            # 238 linhas do 7891/1133).
             palavras = tuple(
                 Palavra(texto, _pontos(palavra), confianca)
                 for palavra in linha.findall(_P + "Word")
                 for texto, confianca in [_texto_e_confianca(palavra)]
+                if texto.strip()
             )
             texto, confianca = _texto_e_confianca(linha)
             linhas.append(
@@ -243,9 +252,10 @@ def _contorno(pai: ET.Element, pontos: tuple[Ponto, ...], marca: str = "Coords")
 def escrever_page_xml(pagina: PaginaPosicionada, criador: str = "rag") -> str:
     """Serializa em PAGE XML 2019, com a ordem de leitura explícita."""
     ET.register_namespace("", NS_PAGE)
+    ET.register_namespace("xsi", NS_XSI)
     agora = datetime.now(UTC).isoformat(timespec="seconds")
 
-    raiz = ET.Element(_P + "PcGts")
+    raiz = ET.Element(_P + "PcGts", {f"{{{NS_XSI}}}schemaLocation": LOCAL_DO_ESQUEMA})
     metadados = _sub(raiz, "Metadata")
     _sub(metadados, "Creator").text = criador
     _sub(metadados, "Created").text = agora

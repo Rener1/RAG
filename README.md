@@ -47,6 +47,45 @@ diz se falta algum deles. A imagem do container já os traz.
 Use **podman**, não docker — em muitas distros `docker` já é o shim dele. O
 podman roda rootless, e por isso os volumes usam a flag `:Z` do SELinux.
 
+### Revisão do OCR (eScriptorium)
+
+A mesa de revisão do OCR ([registro](docs/acervo/revisao-do-ocr.md) §6) é opcional, e o RAG roda
+sem ela. Antes da primeira subida, gere as senhas, que ficam fora do git. **Nunca use o
+`variables.env_example` oficial**: ele traz `admin:admin`.
+
+```bash
+mkdir -p data/escriptorium && umask 077 && cat > data/escriptorium/variables.env <<EOF
+DOMAIN=localhost
+SECRET_KEY=$(openssl rand -hex 32)
+CSRF_TRUSTED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+SITE_NAME=escriptorium
+REDIS_HOST=redis
+SQL_HOST=db
+SQL_PORT=5432
+POSTGRES_USER=escriptorium
+POSTGRES_PASSWORD=$(openssl rand -hex 16)
+POSTGRES_DB=escriptorium
+DJANGO_SU_NAME=admin
+DJANGO_SU_EMAIL=admin@localhost
+DJANGO_SU_PASSWORD=$(openssl rand -hex 8)
+DJANGO_FROM_EMAIL=noreply@localhost
+KRAKEN_TRAINING_LOAD_THREADS=8
+KRAKEN_TRAINING_BATCH_SIZE=1
+EOF
+```
+
+Para subir, olhar e desligar:
+
+```bash
+podman compose -f compose.escriptorium.yaml up -d     # → http://127.0.0.1:8080
+sed -n 's/^DJANGO_SU_PASSWORD=//p' data/escriptorium/variables.env   # senha do admin
+podman compose -f compose.escriptorium.yaml down      # desliga; os dados ficam em data/escriptorium/
+```
+
+**Suba pelo terminal, não pelo "Compose Up" da extensão do podman no VS Code.** A extensão usa o
+nome do projeto `RAG`. Um `up` pelo terminal cria então uma segunda cópia sobre a mesma pasta do
+banco.
+
 ## Rodando em container
 
 Alternativa à instalação no host: o pipeline inteiro roda em container, e o

@@ -322,6 +322,24 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   estreita da margem, ora dentro da região do corpo — no mesmo documento. Por isso a regra de ruído
   tem dois níveis (região inteira e linha na margem), e o carimbo é tirado linha a linha. Só a regra
   por região deixava o P11 em 3,3% de CER; com a por linha, 1,9%.
+- **O Kraken grava cada espaço como um `Word` próprio.** `ler_page_xml` descarta as palavras que são
+  só espaço. Sem isso, o eScriptorium junta as palavras com espaço triplo.
+- **O eScriptorium (`compose.escriptorium.yaml`) só fica de pé com um mesmo nível SELinux em
+  todos os containers.**
+  - `static` e `media` são montadas em vários containers e levam `:z`, o rótulo compartilhado.
+    Com `:Z`, privado, o último container a subir toma a pasta para si.
+  - Só isso não basta: cada arquivo novo nasce com as categorias do container que o criou, e o
+    worker não lê o XML que o web gravou. Daí o `label=level:s0:c311,c733` em todos.
+  - O importador recusa PAGE sem `xsi:schemaLocation`, e por isso `escrever_page_xml` grava esse
+    atributo.
+  - A confiança não é importada, por um defeito do importador dele.
+- **Uma cópia só do eScriptorium.** Sem `name: escriptorium`, o podman-compose usa o nome da
+  pasta (`rag`), e um `down` derrubaria o compose do RAG.
+  - **A extensão do podman no VS Code ignora esse nome e sobe com o projeto `RAG`.** Um `up` pelo
+    terminal cria então uma segunda cópia, com um segundo PostgreSQL sobre a mesma pasta.
+  - O `:Z` do banco impediu a gravação simultânea, mas a cópia da extensão ficou com erro 500.
+    Aconteceu em 2026-11-06.
+  - Antes de subir, confira com `podman ps | grep -E '^(RAG|escriptorium)_'`.
 - **Os padrões ficam em `src/rag/config.py`**, não espalhados pelos módulos e não em `.env`. Por
   cima deles entra o `config.toml` (opcional, gitignored), e por cima dele as flags e o menu.
   Ajuste de menu e de flag vale só para aquela execução até ser gravado com `config --salvar`.
@@ -332,7 +350,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-451 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+453 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,
