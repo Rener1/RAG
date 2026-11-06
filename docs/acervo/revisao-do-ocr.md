@@ -73,9 +73,13 @@ ou o `.txt` de cada exemplo.
 | **P12 · Erro de digitação do original** | O datiloscrito tem uma palavra digitada errada, e o OCR a transcreveu fielmente. O `.txt` está igual ao papel e mesmo assim errado, e quem buscar a forma correta não acha o trecho | `expresão` em lugar de "expressão", igual na imagem. 7891/1133 p. 4 (linha 185 do `.txt`) | média | **Sim, mas é decisão editorial.** Localiza-se pelo mesmo filtro do P10, as palavras fora do dicionário. Corrigir melhora a busca, mas altera a fonte, e o texto citado deixaria de ser o que está no papel (§3, ponto 5) |
 | **P9 · Palavras coladas** | Falta o espaço entre duas palavras, quase sempre depois da pontuação. Neste caso vem do original datilografado, não do OCR: o OCR reproduziu fielmente. A busca pode tratar as duas palavras como uma só | `adultos.De` e `parecer,a`: falta espaço depois do ponto e da vírgula. 7891/1133 p. 1 | baixa | **Sim.** Inserir o espaço quando a pontuação vem colada a uma letra (`.De` → `. De`, `,a` → `, a`). Precisa poupar o que não é erro: números (`3.5`), siglas (`U.S.A.`), e-mails e endereços |
 
-Categorias ainda sem ocorrência, para quando aparecerem: **página fora de ordem ou contada
-errado** e **metadado divergente** (o catálogo diz uma coisa e o documento mostra outra: ano,
-título, idioma).
+Categoria ainda sem ocorrência, para quando aparecer: **página fora de ordem ou contada errado**.
+
+**Metadado divergente** (o catálogo diz uma coisa e o documento mostra outra: ano, título,
+idioma) teve a primeira ocorrência em 2026-11-06, achada pelo relatório de qualidade (P3, idioma
+suspeito): o 7891/3011 está catalogado como espanhol e o texto é português. O 7891/90147 (`other`)
+e o 7891/127 (sem idioma) não têm idioma no catálogo, e o 90147 é bilíngue. A correção é no
+catálogo, e é decisão de quem cuida dele ([medições](../engenharia/medicoes.md#normalização-e-relatório-de-qualidade-2026-11-06)).
 
 ---
 

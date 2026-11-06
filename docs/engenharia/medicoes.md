@@ -345,8 +345,15 @@ dela (`pdfimages -list`). No acervo:
 | o diagramado (7891/90147) | no máximo 22% (uma foto) |
 
 O 7891/4657 traz um OCR do Acrobat 9 sobre a imagem. Naquele francês, o Kraken troca `a` por `o` e
-`d` (`éducotion`, `serdit`), e o Acrobat erra menos. A escolha é pela fração fora do dicionário e
-**espera o `hunspell-fr`**. Sem ele, fica o Kraken.
+`d` (`éducotion`, `serdit`), e o Acrobat erra menos. Fica a leitura com menor fração fora do
+dicionário:
+
+| Página | Acrobat | Kraken | Fica |
+|---|---|---|---|
+| 1 | 8,2% | 7,9% | Kraken (tira também o carimbo) |
+| 2 | 5,2% | 14,0% | Acrobat |
+| 3 | 5,8% | 13,0% | Acrobat |
+| 4 | 6,0% | 13,4% | Acrobat |
 
 ### Normalização: medida contra a referência
 
@@ -371,7 +378,9 @@ pelas palavras partidas e pela pontuação colada. No 7891/90109 p. 3 o WER pass
 | sem hífen | 128 | 24 de 30 | Pedaços curtos (`vel` / `e` → `vele`, `o` / `va` → `ova`). Passou a exigir junta de 5 letras ou mais (`minimo_da_junta_sem_hifen`) |
 | pontuação colada | 49 | 27 de 30 | `Ph.D.` e o código `FPF.OPF` eram abertos. Passou a exigir minúscula antes, e a não abrir abreviação |
 
-As contagens são as do texto já com os ajustes. O CER normalizado ficou o mesmo depois deles.
+As contagens são as do texto já com os ajustes e antes dos dicionários de espanhol e francês. Com
+eles, o hífen comum sobe para 159 junções e o mantido cai para 260. O CER normalizado ficou o mesmo
+depois dos ajustes.
 
 ### O relatório: níveis do acervo e o que eles valem
 
@@ -386,22 +395,38 @@ Os níveis vêm da fração das palavras de inicial minúscula fora do dicionár
 | regular | até 10% |
 | ruim | acima de 10%, ou página vazia |
 
-Mais de 10% de palavras hesitantes (confiança abaixo de 0,5) baixa um nível. Ainda **sem os
-dicionários de espanhol e francês**:
+Mais de 10% de palavras hesitantes (confiança abaixo de 0,5) baixa um nível. Com os dicionários de
+português, inglês, espanhol e francês:
 
 | | Bom | Regular | Ruim | Sem medida | Texto original |
 |---|---|---|---|---|---|
-| Documentos (39) | 8 | 17 | 4 | 9 (os 5 em espanhol e os 4 em francês) | 1 |
-| Páginas (296) | 49 | 93 | 20 | 91 | 43 |
+| Documentos (39) | 11 | 22 | 5 | 0 | 1 |
+| Páginas (296) | 87 | 117 | 45 | 4 | 43 |
+
+Por idioma, em documentos:
+
+| Idioma | Bom | Regular | Ruim | Texto original |
+|---|---|---|---|---|
+| português (21, dois deles detectados) | 5 | 11 | 4 | 1 |
+| inglês (9) | 3 | 6 | — | — |
+| espanhol (5) | 1 | 3 | 1 | — |
+| francês (4) | 2 | 2 | — | — |
+
+Ficam boas ou são texto original 130 das 296 páginas (44%).
 
 Os problemas detectados, em número de documentos:
 
 | Problema | Documentos |
 |---|---|
-| P2, acento perdido ou muitas palavras fora do dicionário | 30 |
+| P2, acento perdido ou muitas palavras fora do dicionário | 39 |
 | P7, linhas de baixa confiança | 12 |
 | P6, colunas | 10 |
-| P3, idioma suspeito | 1 |
+| P3, idioma suspeito | 2 |
+
+**Os dois P3 procedem:**
+- o 7891/3011 está catalogado como espanhol e o texto é português: é a primeira ocorrência de
+  metadado divergente. A medida dele sai distorcida, porque foi feita com o dicionário de espanhol;
+- o 7891/90147 é bilíngue, com textos em português e em espanhol, e não tem idioma no catálogo.
 
 **Conferência por amostra.** Seis páginas sorteadas, duas por nível, comparando imagem e texto
 normalizado:
@@ -420,11 +445,14 @@ normalizado:
 - No acervo ela pune o acento que o CATMuS perde e o Tesseract, com o modelo de português, não
   perde. Por isso a média fica em 7,3% para o Kraken contra 3,9% para o Tesseract.
 
-Ela serve para ordenar as páginas de um mesmo motor, que é o uso no relatório.
+Ela serve para ordenar as páginas de um mesmo motor, que é o uso no relatório. Na escolha entre o
+OCR anterior e o Kraken numa mesma página, a régua tem o mesmo viés, que só pesa contra o Kraken.
 
 **Onde o Kraken perde de fato.** Na comparação página a página (as 253 do Kraken, com folga de 5
-pontos), há empate em 130. O Tesseract ganha em 22 e o Kraken em 3; em 11 o Tesseract deixou a
-página vazia, e 87 ficaram sem medida (espanhol e francês).
+pontos, antes dos dicionários de espanhol e francês), há empate em 130. O Tesseract ganha em 22 e
+o Kraken em 3; em 11 o Tesseract deixou a página vazia, e 87 ficaram sem medida (espanhol e
+francês). Com os quatro dicionários, a média fora do dicionário nos 38 documentos medidos é 7,7%
+para o Kraken e 5,4% para o Tesseract.
 
 Os trechos confirmam dois casos:
 
