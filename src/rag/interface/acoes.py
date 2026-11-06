@@ -8,6 +8,7 @@ comando alcance.
 """
 
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -132,7 +133,7 @@ def acao_extrair(
     _relatar(resultado, "PDFs extraídos")
     console.detalhe(
         f"  {detalhes['digital_nativo']} com texto próprio, {detalhes['ocr']} com OCR "
-        f"({detalhes['paginas_ocr']} páginas reconhecidas)."
+        f"({detalhes['paginas_ocr']} páginas reconhecidas), {detalhes['ocr_anterior']} só com OCR anterior."
     )
     if detalhes["paginas_abaixo_do_minimo"]:
         console.aviso(
@@ -148,18 +149,64 @@ def acao_extrair(
     return not resultado.houve_falha
 
 
+def acao_normalizar(servico: Servico, *, documentos: list[str] | None = None, pasta_texto: Path | None = None) -> bool:
+    """Normaliza o texto extraído e mede a qualidade de cada página. Rápido, sem OCR."""
+    console.titulo("Normalização do texto")
+    pasta = pasta_texto or servico.config.caminhos.texto_acervo
+    console.detalhe(f"  Texto extraído: {pasta}")
+    progresso = console.Progresso("normalizando")
+    resultado = servico.normalizar_texto(progresso, documentos=documentos, pasta_texto=pasta_texto)
+    progresso.encerrar()
+    _relatar(resultado, "PDFs normalizados")
+    detalhes = resultado.detalhes
+    console.detalhe(f"  {detalhes['paginas']} páginas. Ao lado de cada .txt: .normalizado.txt e .qualidade.json")
+    for aviso in detalhes["avisos"][:5]:
+        console.aviso(aviso)
+    return not resultado.houve_falha
+
+
+def acao_relatorio_ocr(servico: Servico, *, destino: Path | None = None, pasta_texto: Path | None = None) -> bool:
+    """Planilha de qualidade do OCR, documento a documento, a partir do texto normalizado."""
+    from datetime import date
+
+    from .. import relatorio_ocr
+    from ..clientes.planilha import gravar_planilha
+    from ..etapas.extracao import titulo_do_item
+
+    console.titulo("Relatório de qualidade do OCR")
+    caminhos = servico.config.caminhos
+    pasta = pasta_texto or caminhos.texto_acervo
+    qualidades = relatorio_ocr.ler_qualidades(pasta)
+    if not qualidades:
+        console.falha(f"Nenhum .qualidade.json em {pasta}. Rode antes: python3 main.py normalizar")
+        return False
+    anteriores = relatorio_ocr.ler_qualidades(caminhos.texto_acervo_tesseract)
+    if anteriores:
+        console.detalhe(f"  Comparando com a extração do Tesseract em {caminhos.texto_acervo_tesseract}")
+    titulos = {q["handle"]: titulo_do_item(caminhos.exportacao / q["pasta_item"]) for q in qualidades.values()}
+    hoje = date.today().isoformat()
+    abas, resumos = relatorio_ocr.montar_abas(qualidades, titulos, servico.config.qualidade, hoje, anteriores)
+    destino = destino or caminhos.relatorios / f"qualidade_ocr_{hoje}.xlsx"
+    gravar_planilha(destino, abas)
+
+    niveis = Counter(r["nivel"] for r in resumos)
+    console.sucesso(f"{len(resumos)} documentos: " + ", ".join(f"{n} {niveis[n]}" for n in niveis))
+    console.detalhe(f"  Planilha em {destino}")
+    return True
+
+
 def _numero(valor: float | None, formato: str) -> str:
     return "—" if valor is None else format(valor, formato)
 
 
-def acao_avaliar_ocr(servico: Servico, *, gerar: list[str] | None = None, paginas: list[str] | None = None) -> bool:
+def acao_avaliar_ocr(
+    servico: Servico, *, gerar: list[str] | None = None, paginas: list[str] | None = None, normalizado: bool = False
+) -> bool:
     """Taxa de erro de cada motor de OCR contra as transcrições de referência.
 
     `gerar` roda antes os motores locais pedidos ("todos" roda todos). As
     páginas são as que têm referência, ou as de `paginas`.
     """
-    from ..clientes.ortografia import palavras_desconhecidas
-
     console.titulo("Avaliação do OCR")
     base = servico.config.caminhos.avaliacao_ocr
     identificadores = paginas or avaliacao_ocr.referencias_existentes(base)
@@ -191,7 +238,11 @@ def acao_avaliar_ocr(servico: Servico, *, gerar: list[str] | None = None, pagina
         return True
 
     progresso = console.Progresso("comparando")
-    resultados, avisos = avaliacao_ocr.avaliar(base, palavras_desconhecidas, progresso)
+    if normalizado:
+        console.detalhe("  Referência e candidatos normalizados com as mesmas regras (normalizacao.*).")
+    resultados, avisos = avaliacao_ocr.avaliar(
+        base, servico.verificador_ortografico, progresso, servico.config.normalizacao if normalizado else None
+    )
     progresso.encerrar()
     for aviso in avisos:
         console.aviso(aviso)

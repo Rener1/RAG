@@ -499,3 +499,113 @@ class TestIdiomaDoCatalogo(unittest.TestCase):
             criar_item(Path(pasta), "item", "123/9", "doc.pdf\n", {"doc.pdf": b"x"})
             pdfs, _ = extracao.listar_pdfs(Path(pasta))
         self.assertEqual(pdfs[0].idioma, "")
+
+
+TEXTO_ANTERIOR = "Txto anterlor da pagina escaneada, com erros."
+
+
+def verificador_que_desconhece(*desconhecidas: str):
+    """Dicionário de mentira: conhece tudo, menos as palavras dadas."""
+
+    def verificar(palavras, idioma):
+        return {p for p in palavras if p in desconhecidas}
+
+    return verificar
+
+
+class TestOcrAnterior(unittest.TestCase):
+    """Texto sobre página escaneada é OCR de outro: vai ao nosso, e fica o de menos erro."""
+
+    def setUp(self):
+        self._temporario = tempfile.TemporaryDirectory()
+        raiz = Path(self._temporario.name)
+        self.exportacao, self.saida = raiz / "exportacao", raiz / "texto"
+        self.config = ConfigExtracao(minimo_de_caracteres_por_pagina=10)
+        criar_item(self.exportacao, "item_000", "123/9", "antigo.pdf\n", {"antigo.pdf": b"antigo"})
+        # p. 1 e 2 escaneadas com camada de texto; p. 3 digital de verdade
+        self.leitor = LeitorFalso(
+            {"antigo.pdf": [TEXTO_ANTERIOR, TEXTO_ANTERIOR, TEXTO_BOM]},
+            escaneadas={"antigo.pdf": {1, 2}},
+            produtor="Producer: Paper Capture",
+        )
+        self.reconhecedor = ReconhecedorFalso()
+
+    def tearDown(self):
+        self._temporario.cleanup()
+
+    def executar(self, verificador):
+        extracao.executar(
+            self.config, self.exportacao, self.saida, self.leitor, self.reconhecedor, verificador=verificador
+        )
+        pasta = self.saida / "123_9"
+        registro = json.loads((pasta / "antigo.pdf.json").read_text(encoding="utf-8"))
+        paginas = (pasta / "antigo.pdf.txt").read_text(encoding="utf-8").split("\f")
+        return registro, paginas
+
+    def test_so_as_escaneadas_vao_ao_ocr(self):
+        self.executar(verificador_que_desconhece("Txto", "anterlor"))
+        self.assertEqual(self.reconhecedor.pedidos, [("antigo.pdf", [1, 2])])
+
+    def test_fica_o_nosso_quando_erra_menos(self):
+        registro, paginas = self.executar(verificador_que_desconhece("Txto", "anterlor"))
+        self.assertEqual(paginas[0], "Texto reconhecido da página 1 com acentuação.")
+        self.assertEqual(paginas[2], TEXTO_BOM)
+        self.assertEqual(registro["origem_por_pagina"], ["ocr", "ocr", "digital_nativo"])
+        self.assertEqual(registro["comparacao_ocr_anterior"]["1"]["escolhido"], "ocr")
+        self.assertEqual(registro["produtor_do_pdf"], "Producer: Paper Capture")
+        anterior = self.saida / "123_9" / "antigo.pdf.paginas" / "pagina_0001.anterior.txt"
+        self.assertEqual(anterior.read_text(encoding="utf-8"), TEXTO_ANTERIOR)
+
+    def test_fica_o_anterior_quando_o_nosso_erra_mais(self):
+        registro, paginas = self.executar(verificador_que_desconhece("reconhecido", "acentuação", "Texto"))
+        self.assertEqual(paginas[0], TEXTO_ANTERIOR)
+        self.assertEqual(registro["origem_por_pagina"], ["ocr_anterior", "ocr_anterior", "digital_nativo"])
+        self.assertEqual(registro["origem_do_texto"], "ocr_anterior")
+        self.assertNotIn("paginas_ocr", registro)
+
+    def test_sem_dicionario_fica_o_nosso(self):
+        registro, paginas = self.executar(lambda palavras, idioma: None)
+        self.assertEqual(registro["origem_por_pagina"][:2], ["ocr", "ocr"])
+        self.assertIsNone(registro["comparacao_ocr_anterior"]["2"]["anterior"])
+
+    def test_nosso_vazio_nao_troca_texto_por_nada(self):
+        self.reconhecedor = ReconhecedorFalso(ilegiveis={1, 2})
+        registro, paginas = self.executar(None)
+        self.assertEqual(paginas[:2], [TEXTO_ANTERIOR, TEXTO_ANTERIOR])
+        self.assertEqual(registro["comparacao_ocr_anterior"]["1"]["escolhido"], "ocr_anterior")
+
+    def test_pdf_todo_digital_nao_chama_o_ocr(self):
+        self.leitor.escaneadas = {}
+        registro, _ = self.executar(None)
+        self.assertEqual(self.reconhecedor.pedidos, [])
+        self.assertEqual(registro["origem_do_texto"], "digital_nativo")
+        self.assertNotIn("origem_por_pagina", registro)
+
+
+class TestCoberturaDeImagem(unittest.TestCase):
+    """`pdfimages -list` → fração da página coberta pela maior imagem."""
+
+    INFO = "Pages:           2\nPage    1 size: 480 x 672 pts\nPage    2 size: 595 x 842 pts (A4)\n"
+    IMAGENS = (
+        "page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio\n"
+        "--------------------------------------------------------------------------------------------\n"
+        "   1     0 image    1657  2341  gray    1   8  jpeg   no        61  0   200   200  347K 9.2%\n"
+        "   1     1 stencil     1     1  -       1   1  image  no   [inline]   0.125 0.087    1B   - \n"
+        "   2     2 image     780   573  icc     3   8  jpx    no         6  0   144   144  372K  28%\n"
+    )
+
+    def _rodar(self, comando, **_):
+        return _processo(self.IMAGENS if comando[0] == "pdfimages" else self.INFO)
+
+    def test_pagina_escaneada_e_foto_pequena(self):
+        with mock.patch.object(clientes_pdf.subprocess, "run", side_effect=self._rodar):
+            coberturas = clientes_pdf.LeitorPoppler().coberturas_de_imagem(Path("doc.pdf"))
+        self.assertGreater(coberturas[0], 1.0)  # a imagem passa da margem
+        self.assertAlmostEqual(coberturas[1], (780 / 2) * (573 / 2) / (595 * 842), places=3)
+
+    def test_sem_pdfimages_nenhuma_pagina_e_escaneada(self):
+        def rodar(comando, **_):
+            return _processo(returncode=1) if comando[0] == "pdfimages" else _processo(self.INFO)
+
+        with mock.patch.object(clientes_pdf.subprocess, "run", side_effect=rodar):
+            self.assertEqual(clientes_pdf.LeitorPoppler().coberturas_de_imagem(Path("doc.pdf")), [0.0, 0.0])

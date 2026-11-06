@@ -10,7 +10,7 @@ São `Protocol` (tipagem estrutural) e não classes-base: uma implementação
 alternativa não precisa herdar de nada, só ter os métodos com a mesma forma.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -94,6 +94,28 @@ class LeitorDePdf(Protocol):
     def textos_das_paginas(self, caminho: Path) -> list[str]:
         """Um texto por página, na ordem do PDF — vazio para página sem texto."""
         ...
+
+    def coberturas_de_imagem(self, caminho: Path) -> list[float]:
+        """Por página, a fração da área coberta pela maior imagem dela (0 sem imagem).
+
+        É o que distingue o texto original de um OCR anterior: texto sobre uma
+        página escaneada foi reconhecido por alguém, não escrito. Quem decide a
+        partir de que fração a página é escaneada é a etapa, pela configuração.
+        """
+        ...
+
+    def produtor(self, caminho: Path) -> str:
+        """Programa que gerou o PDF, como o PDF declara. Evidência para o registro, não critério."""
+        ...
+
+
+# Palavras de um idioma (código do Tesseract) → as que o dicionário não conhece,
+# ou `None` sem dicionário para o idioma. Implementação: `clientes/ortografia.py`.
+VerificadorDePalavras = Callable[[list[str], str], set[str] | None]
+
+# Palavras de um idioma → sugestões do dicionário para as que ele não conhece,
+# ou `None` sem dicionário. Só detecta (acento perdido); nunca troca palavra.
+SugeridorDePalavras = Callable[[list[str], str], dict[str, list[str]] | None]
 
 
 @runtime_checkable

@@ -243,13 +243,28 @@ class ColetorFalso:
 class LeitorFalso:
     """Camada de texto de mentira: páginas fixas por nome de arquivo, sem Poppler."""
 
-    def __init__(self, paginas_por_arquivo: dict[str, list[str]]) -> None:
+    def __init__(
+        self,
+        paginas_por_arquivo: dict[str, list[str]],
+        escaneadas: dict[str, set[int]] | None = None,
+        produtor: str = "",
+    ) -> None:
         self.paginas_por_arquivo = paginas_por_arquivo
+        # Por padrão, nenhuma página é escaneada: o texto que houver é original.
+        self.escaneadas = escaneadas or {}
+        self._produtor = produtor
         self.lidos: list[str] = []
 
     def textos_das_paginas(self, caminho: Path) -> list[str]:
         self.lidos.append(caminho.name)
         return list(self.paginas_por_arquivo[caminho.name])
+
+    def coberturas_de_imagem(self, caminho: Path) -> list[float]:
+        escaneadas = self.escaneadas.get(caminho.name, set())
+        return [1.0 if n in escaneadas else 0.0 for n in range(1, len(self.paginas_por_arquivo[caminho.name]) + 1)]
+
+    def produtor(self, caminho: Path) -> str:
+        return self._produtor
 
 
 class ReconhecedorFalso:

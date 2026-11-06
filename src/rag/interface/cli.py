@@ -31,6 +31,8 @@ exemplos:
   python3 main.py ambiente                 diagnóstico do ambiente
   python3 main.py extrair                  texto dos PDFs do acervo, com OCR onde falta
   python3 main.py extrair --documento 123456789/42   refaz só um documento
+  python3 main.py normalizar               junta palavras partidas e mede a qualidade do texto
+  python3 main.py relatorio-ocr            planilha de qualidade do OCR, documento a documento
   python3 main.py avaliar-ocr --gerar todos   taxa de erro de cada motor de OCR contra as referências
   python3 main.py chunking                 refaz os chunks
   python3 main.py chunking --estrategia paragrafo_agrupado --saida data/experimento.jsonl
@@ -137,6 +139,20 @@ def construir_parser() -> argparse.ArgumentParser:
         help="grava em outra pasta, preservando data/texto_acervo",
     )
 
+    p_normalizar = novo_subcomando("normalizar", "junta palavras partidas e mede a qualidade do texto extraído")
+    p_normalizar.add_argument(
+        "--documento", action="append", metavar="HANDLE", help="normaliza só este handle (repetível)"
+    )
+    p_normalizar.add_argument(
+        "--entrada", type=Path, metavar="PASTA", help="outra pasta de texto extraído (padrão: data/texto_acervo)"
+    )
+
+    p_relatorio = novo_subcomando("relatorio-ocr", "planilha de qualidade do OCR, documento a documento")
+    p_relatorio.add_argument(
+        "--saida", type=Path, metavar="ARQUIVO", help="onde gravar o .xlsx (padrão: data/relatorios/)"
+    )
+    p_relatorio.add_argument("--entrada", type=Path, metavar="PASTA", help="outra pasta de texto normalizado")
+
     p_chunking = novo_subcomando("chunking", "etapa 2 — corta o corpus em trechos")
     p_chunking.add_argument("--estrategia", help="estratégia de corte (paragrafo, paragrafo_agrupado)")
     p_chunking.add_argument("--tamanho-maximo", type=int, metavar="CHARS", help="teto de caracteres por chunk")
@@ -158,6 +174,11 @@ def construir_parser() -> argparse.ArgumentParser:
         action="append",
         metavar="ID",
         help="página a gerar, como 7891_90109_FPF_OPF_01_0005_p0003 (repetível; padrão: as que têm referência)",
+    )
+    p_avaliar_ocr.add_argument(
+        "--normalizado",
+        action="store_true",
+        help="compara depois da normalização (junção de palavras e de linhas), aplicada aos dois lados",
     )
 
     p_indexar = novo_subcomando("indexar", "etapa 3 — embedding e indexação (muito demorado)")
@@ -367,8 +388,21 @@ def principal(argv: list[str] | None = None) -> int:
                 pasta_saida=argumentos.saida,
             )
             return 0 if sucesso else 1
+        if comando == "normalizar":
+            sucesso = acoes.acao_normalizar(servico, documentos=argumentos.documento, pasta_texto=argumentos.entrada)
+            return 0 if sucesso else 1
+        if comando == "relatorio-ocr":
+            return (
+                0 if acoes.acao_relatorio_ocr(servico, destino=argumentos.saida, pasta_texto=argumentos.entrada) else 1
+            )
         if comando == "avaliar-ocr":
-            return 0 if acoes.acao_avaliar_ocr(servico, gerar=argumentos.gerar, paginas=argumentos.pagina) else 1
+            return (
+                0
+                if acoes.acao_avaliar_ocr(
+                    servico, gerar=argumentos.gerar, paginas=argumentos.pagina, normalizado=argumentos.normalizado
+                )
+                else 1
+            )
         if comando == "chunking":
             sucesso = acoes.acao_chunking(
                 servico,

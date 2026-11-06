@@ -36,19 +36,19 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import ConfigRegioes
+from .config import ConfigNormalizacao, ConfigRegioes
 from .erros import ErroConfiguracao
 from .etapas import RelatorProgresso, sem_progresso
 from .etapas.extracao import listar_pdfs, nome_seguro
 from .modelos import LeituraDoMotor
-from .protocolos import ReconhecedorOptico
+from .normalizacao_texto import blocos_do_texto, normalizar_blocos
+from .protocolos import ReconhecedorOptico, VerificadorDePalavras
+from .qualidade_ocr import fracao_fora_do_dicionario
 from .texto_posicionado import classificar_regioes, texto_da_pagina, tipos_ignorados
 
 # (pdf, número da página a partir de 1, idioma do Tesseract) → leitura.
 MotorDeOcr = Callable[[Path, int, str], LeituraDoMotor]
 
-# Palavras do idioma → as que o dicionário não conhece, ou `None` sem dicionário.
-VerificadorDePalavras = Callable[[list[str], str], set[str] | None]
 
 SUFIXO_DE_PAGINA = "_p"
 
@@ -195,20 +195,6 @@ def wer_sem_ordem(referencia: str, candidato: str) -> float:
     return _taxa(max(faltam, sobram), sum(ref.values()))
 
 
-def fracao_fora_do_dicionario(texto: str, idioma: str, verificador: VerificadorDePalavras | None) -> float | None:
-    """Das palavras só de letras, quantas o dicionário não conhece. `None` sem dicionário."""
-    if verificador is None:
-        return None
-    palavras = [p.strip(".,;:!?()[]\"'“”«»—-") for p in normalizar(texto).split()]
-    palavras = [p for p in palavras if p.isalpha()]
-    if not palavras:
-        return None
-    desconhecidas = verificador(palavras, idioma)
-    if desconhecidas is None:
-        return None
-    return sum(1 for p in palavras if p in desconhecidas) / len(palavras)
-
-
 # ── páginas, referências e candidatos em disco ────────────────────────────
 
 
@@ -288,8 +274,14 @@ def avaliar(
     base: Path,
     verificador: VerificadorDePalavras | None = None,
     progresso: RelatorProgresso = sem_progresso,
+    normalizacao: ConfigNormalizacao | None = None,
 ) -> tuple[list[ResultadoDaPagina], list[str]]:
-    """Compara cada candidato em disco com a referência da mesma página."""
+    """Compara cada candidato em disco com a referência da mesma página.
+
+    Com `normalizacao`, as duas passam pelas mesmas regras antes (roadmap item
+    9): quebra de linha e hífen de fim de linha não são conteúdo, e a medida diz
+    se a normalização acerta mais do que erra.
+    """
     referencias = referencias_existentes(base)
     motores = motores_existentes(base)
     if not referencias:
@@ -302,7 +294,7 @@ def avaliar(
     avisos: list[str] = []
     total, feito = len(referencias) * len(motores), 0
     for pagina in referencias:
-        referencia = (base / "referencias" / f"{pagina}.txt").read_text(encoding="utf-8")
+        referencia_bruta = (base / "referencias" / f"{pagina}.txt").read_text(encoding="utf-8")
         for motor in motores:
             feito += 1
             caminho = base / "candidatos" / motor / f"{pagina}.txt"
@@ -311,6 +303,13 @@ def avaliar(
                 continue
             candidato = caminho.read_text(encoding="utf-8")
             registro = _ler_registro(caminho.with_suffix(".json"))
+            if normalizacao is not None:
+                idioma = registro.get("idioma", "")
+                referencia, candidato = (
+                    _normalizado(texto, idioma, normalizacao, verificador) for texto in (referencia_bruta, candidato)
+                )
+            else:
+                referencia = referencia_bruta
             resultados.append(
                 ResultadoDaPagina(
                     pagina=pagina,
@@ -328,6 +327,13 @@ def avaliar(
             )
             progresso(feito, total, f"{motor} · {pagina}")
     return resultados, avisos
+
+
+def _normalizado(texto: str, idioma: str, config: ConfigNormalizacao, verificador: VerificadorDePalavras | None) -> str:
+    def desconhecidas(palavras: list[str]) -> set[str] | None:
+        return verificador(palavras, idioma) if verificador else None
+
+    return normalizar_blocos(blocos_do_texto(texto), config, desconhecidas if verificador else None).texto
 
 
 def media_por_motor(resultados: list[ResultadoDaPagina]) -> dict[str, dict[str, float]]:

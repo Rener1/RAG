@@ -43,6 +43,8 @@ lá e ligue nas duas portas.
 python3 main.py                    # menu
 python3 main.py ambiente           # diagnóstico (use antes de investigar qualquer falha)
 python3 main.py extrair            # texto dos PDFs do acervo; --documento HANDLE refaz um só
+python3 main.py normalizar         # palavras partidas, parágrafos e qualidade por página; sem OCR
+python3 main.py relatorio-ocr      # planilha de qualidade do OCR (data/relatorios/, fora do git)
 python3 main.py chunking           # --saida OUTRO.jsonl para não destruir o chunks.jsonl indexado
 python3 main.py indexar            # retoma de onde parou; --recriar para refazer
 python3 main.py --carga reduzida indexar   # EXPERIMENTAL: poupa o hardware; o padrão é --carga total
@@ -78,12 +80,15 @@ src/rag/
   avaliacao.py       recall@k contra o gabarito de avaliacao/casos.jsonl
   avaliacao_ocr.py   CER/WER de motores de OCR contra transcrições de referência (data/avaliacao_ocr/, fora do git)
   texto_posicionado.py  PAGE XML (regiões com tipo, linhas, palavras, confiança) e o texto derivado dele
+  normalizacao_texto.py regras do texto depois do OCR (palavra partida, parágrafo, pontuação colada)
+  qualidade_ocr.py      indicadores de qualidade sem referência e o nível de cada página
+  relatorio_ocr.py      as abas da planilha de qualidade do OCR
   acelerador.py      detecta GPU e diz qual build de torch instalar
   lexico.py          BM25 e a fusão dele com a busca densa (desligado por padrão)
   carga.py           limitador de carga: embrulha embutidor, reordenador e gerador de apoio
   servico.py         onde as implementações concretas encontram os protocolos
-  clientes/          Ollama, Qdrant, UESP, PDF e OCR, sessão HTTP com repetição
-  etapas/            download, extracao, chunking, indexacao, recuperacao, geracao
+  clientes/          Ollama, Qdrant, UESP, PDF e OCR, ortografia (hunspell), planilha (openpyxl), sessão HTTP
+  etapas/            download, extracao, normalizacao, chunking, indexacao, recuperacao, geracao
   interface/         console, menu, cli, acoes
 ```
 
@@ -304,6 +309,25 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
   (`paginas_do_sidecar`), nunca da posição. E o OCR só substitui a camada digital quando traz
   mais texto: `--force-ocr` reconhece a página do zero, e folha de rosto digital curta trocaria
   texto exato por texto provável.
+- **Texto no PDF não quer dizer texto original.**
+  - O 7891/4657 traz uma camada invisível do Acrobat 9 Paper Capture (fonte `HiddenHorzOCR`) sobre
+    a imagem escaneada.
+  - Por isso a extração separa as páginas pela imagem (`coberturas_de_imagem`, a partir de 90% da
+    página), e não pelo produtor do PDF.
+  - Texto sobre página escaneada vai ao Kraken também, e fica a leitura com menos palavras fora do
+    dicionário.
+  - **O Kraken nem sempre ganha.** Naquele francês ele troca `a` por `o` e `d` (`éducotion`,
+    `serdit`), e o Acrobat erra menos.
+  - Sem dicionário do idioma, fica o Kraken. A versão que perde fica em `pagina_NNNN.anterior.txt`.
+- **A normalização só deixa o dicionário julgar junção, nunca trocar palavra.**
+  - Hífen no fim da linha junta quando a palavra junta existe (`senti-` / `do` → `sentido`), mesmo
+    que as metades também existam. A composta é poupada porque, grudada, não está no dicionário
+    (`sóciopolítico`).
+  - Sem hífen, a junção exige também uma metade desconhecida, senão `de` / `pois` viraria `depois`.
+  - Acento perdido conta só com a mesma caixa e 4 letras ou mais. Sem isso, `aa` → `AA` e `pe` → `pé`
+    inflavam a contagem.
+  - O idioma do catálogo às vezes falta ou é `other` (7891/90147, 7891/127). A normalização então o
+    detecta pelo dicionário, e a planilha diz que é palpite.
 - **A binarização global do Tesseract descarta em silêncio página de fundo cinza.** No
   7891/90109, onze páginas legíveis saíram vazias, sem erro nenhum. O OCRmyPDF só avisa no log
   ("Too few characters"). Quem pega o caso é `paginas_abaixo_do_minimo` no `.json`: olhe essa
@@ -350,7 +374,7 @@ e é editável por quem não programa — `marcos/LEIA-ME.md` é a instrução p
 python3 -m unittest discover -s tests -t tests
 ```
 
-453 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
+491 testes, sem dependência de serviço externo ou rede. Ao mexer em chunking, indexação ou no
 ciclo RAG, rode antes e depois — é o que protege a compatibilidade do índice existente.
 
 Os dublês ficam em `tests/apoio.py`: `EmbutidorFalso`, `RepositorioFalso`, `GeradorFalso`,

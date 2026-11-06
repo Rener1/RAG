@@ -38,6 +38,7 @@ from .etapas import chunking as etapa_chunking
 from .etapas import download as etapa_download
 from .etapas import extracao as etapa_extracao
 from .etapas import indexacao as etapa_indexacao
+from .etapas import normalizacao as etapa_normalizacao
 from .etapas.geracao import montador_do_marco, montar_prompt
 from .etapas.recuperacao import Recuperador
 from .lexico import IndiceLexico, RecuperadorHibrido
@@ -45,7 +46,16 @@ from .marco import Marco
 from .mediacao import ConsultaDecomposta, IntermediadorDeConsulta
 from .modelos import ResultadoEtapa
 from .orquestrador import MotorRag
-from .protocolos import Embutidor, Gerador, LeitorDePdf, ReconhecedorOptico, RecuperadorDeTrechos, Reordenador
+from .protocolos import (
+    Embutidor,
+    Gerador,
+    LeitorDePdf,
+    ReconhecedorOptico,
+    RecuperadorDeTrechos,
+    Reordenador,
+    SugeridorDePalavras,
+    VerificadorDePalavras,
+)
 from .sessao import Dialogo
 
 
@@ -109,6 +119,18 @@ class Servico:
     @cached_property
     def leitor_de_pdf(self) -> LeitorDePdf:
         return LeitorPoppler()
+
+    @property
+    def verificador_ortografico(self) -> VerificadorDePalavras:
+        from .clientes.ortografia import palavras_desconhecidas
+
+        return palavras_desconhecidas
+
+    @property
+    def sugeridor_ortografico(self) -> SugeridorDePalavras:
+        from .clientes.ortografia import sugestoes
+
+        return sugestoes
 
     @cached_property
     def reconhecedor(self) -> ReconhecedorOptico:
@@ -289,6 +311,36 @@ class Servico:
             refazer=refazer,
             documentos=documentos,
             regioes=self.config.regioes,
+            verificador=self.verificador_ortografico,
+            progresso=progresso,
+        )
+
+    def normalizar_texto(
+        self,
+        progresso: RelatorProgresso = sem_progresso,
+        *,
+        documentos: list[str] | None = None,
+        pasta_texto: Path | None = None,
+    ) -> ResultadoEtapa:
+        """Texto normalizado e indicadores de qualidade de cada PDF extraído. Não refaz OCR."""
+        from .etapas.extracao import idioma_do_item
+        from .texto_posicionado import tipos_ignorados
+
+        exportacao = self.config.caminhos.exportacao
+
+        def idioma_de(registro: dict) -> str:
+            # Extração antiga (a cópia do Tesseract) não grava o idioma: vem do catálogo.
+            return registro.get("idioma") or idioma_do_item(exportacao / registro.get("pasta_item", ""))
+
+        return etapa_normalizacao.executar(
+            pasta_texto or self.config.caminhos.texto_acervo,
+            self.config.normalizacao,
+            self.config.qualidade,
+            tipos_ignorados(self.config.regioes),
+            idioma_de,
+            self.verificador_ortografico,
+            self.sugeridor_ortografico,
+            documentos=documentos,
             progresso=progresso,
         )
 

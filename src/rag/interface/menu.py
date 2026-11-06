@@ -157,6 +157,8 @@ def executar(servico: Servico) -> int:
         Opcao("1", "Verificar ambiente", lambda: acoes.acao_ambiente(servico), "diagnóstico de serviços e artefatos"),
         Opcao("2", "Baixar corpus", lambda: acoes.acao_baixar(servico), "etapa 1 — rede, demorado"),
         Opcao("e", "Extrair texto", lambda: acoes.acao_extrair(servico), "PDFs do acervo — OCR, demorado"),
+        Opcao("n", "Normalizar texto", lambda: acoes.acao_normalizar(servico), "palavras partidas e qualidade"),
+        Opcao("r", "Relatório do OCR", lambda: acoes.acao_relatorio_ocr(servico), "planilha de qualidade"),
         Opcao("3", "Gerar chunks", lambda: acoes.acao_chunking(servico), "etapa 2 — rápido"),
         Opcao("4", "Indexar", lambda: acoes.acao_indexar(servico), "etapa 3 — embedding, muito demorado"),
         Opcao("5", "Buscar", lambda: _laco_de_consulta(servico, "buscar"), "etapa 4 — só recuperação"),

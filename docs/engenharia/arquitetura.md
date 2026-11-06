@@ -94,11 +94,15 @@ src/rag/
   lexico.py             BM25 e a fusão dele com a busca densa (desligado por padrão)
   avaliacao.py          recall@k, cobertura, MRR e cortes contra o gabarito
   avaliacao_ocr.py      CER e WER de motores de OCR contra transcrições de referência
+  texto_posicionado.py  PAGE XML (regiões tipadas, linhas, palavras, confiança) e o texto derivado
+  normalizacao_texto.py regras do texto depois do OCR: palavra partida, parágrafo, pontuação colada
+  qualidade_ocr.py      indicadores sem referência (dicionário, acento, confiança, colunas) e nível
+  relatorio_ocr.py      as abas da planilha de qualidade do OCR
   carga.py              limitador de carga do hardware
   ambiente.py           diagnóstico de serviços, modelos e artefatos
   acelerador.py         detecta a GPU e diz qual build do torch instalar
-  etapas/               download · extracao · chunking · indexacao · recuperacao · geracao
-  clientes/             Ollama · Qdrant · UESP · PDF e OCR · reordenador · sessão HTTP com repetição
+  etapas/               download · extracao · normalizacao · chunking · indexacao · recuperacao · geracao
+  clientes/             Ollama · Qdrant · UESP · PDF e OCR · ortografia · planilha · reordenador · sessão HTTP
   interface/            console · menu · cli · acoes
 tests/                  suíte com dublês — sem serviço nem rede
 data/                   artefatos gerados (não versionados)
@@ -115,7 +119,8 @@ Cada etapa lê o artefato da anterior e grava o seu. Pode ser refeita isoladamen
 | Etapa | Lê | Grava | Notas |
 |---|---|---|---|
 | [`download`](../../src/rag/etapas/download.py) | API MediaWiki da UESP | `data/corpus_uesp/*.txt` | Será substituída para o acervo do IPF (§8) |
-| [`extracao`](../../src/rag/etapas/extracao.py) | exportação do DSpace em pastas por item (`data/acervo_dspace/`) | `data/texto_acervo/<handle>/<arquivo>.txt` e `.json` | Lê a camada de texto do PDF; só a página abaixo do mínimo vai ao OCR, e o OCR só fica se trouxer mais texto. Páginas separadas por `\f`. O `.json` é o registro (origem, ferramenta, versão) e o marcador de pronto: retoma pelo sha256 do original. Ainda não consumida pelo chunking (§9) |
+| [`extracao`](../../src/rag/etapas/extracao.py) | exportação do DSpace em pastas por item (`data/acervo_dspace/`) | `data/texto_acervo/<handle>/<arquivo>.txt` e `.json` | Lê a camada de texto do PDF; a página abaixo do mínimo vai ao OCR, e o OCR só fica se trouxer mais texto. Texto sobre página **escaneada** (imagem de página inteira) é OCR anterior, não original: vai ao Kraken também, e fica a leitura com menos palavras fora do dicionário. Páginas separadas por `\f`. O `.json` é o registro (origem por página, ferramenta, versão) e o marcador de pronto: retoma pelo sha256 do original |
+| [`normalizacao`](../../src/rag/etapas/normalizacao.py) | a saída da extração, com o PAGE XML vigente de cada página (o revisado antes do do OCR) | `<arquivo>.normalizado.txt` e `<arquivo>.qualidade.json`, ao lado | Junta palavra partida, faz de cada região um parágrafo e mede cada página sem referência. Mesmo número de páginas. Barata: refaz sempre, sem OCR. Ainda não consumida pelo chunking (§9) |
 | [`chunking`](../../src/rag/etapas/chunking.py) | os `.txt` | `data/chunks.jsonl` | Estratégia plugável (`ESTRATEGIAS`). Grava em arquivo temporário e troca no fim: uma interrupção não corrompe o anterior |
 | [`indexacao`](../../src/rag/etapas/indexacao.py) | `chunks.jsonl` | coleção no Qdrant | Retoma de onde parou; confere a dimensão do vetor **antes** de processar; um lote que falha não derruba os outros |
 
@@ -189,8 +194,9 @@ métodos com a mesma forma.
 | `Reordenador` | `reordenar(pergunta, trechos)` | `ReordenadorLocal` (cross-encoder via torch) | `ReordenadorFalso` |
 | `RecuperadorDeTrechos` | `buscar(pergunta, k)` | `Recuperador`, `RecuperadorHibrido`, `IntermediadorDeConsulta` | `RecuperadorFalso` |
 | `ColetorDeCorpus` | listar e baixar documentos | `ColetorUESP` | `ColetorFalso` |
-| `LeitorDePdf` | `textos_das_paginas(pdf)` — a camada de texto existente | `LeitorPoppler` (`pdftotext`) | `LeitorFalso` |
+| `LeitorDePdf` | `textos_das_paginas(pdf)` — a camada de texto existente; `coberturas_de_imagem(pdf)` e `produtor(pdf)` — se a página é escaneada e quem gerou o PDF | `LeitorPoppler` (`pdftotext`, `pdfimages`, `pdfinfo`) | `LeitorFalso` |
 | `ReconhecedorOptico` | `reconhecer(pdf, paginas)` → `PaginaPosicionada` por página, `identificacao` | `ReconhecedorKraken` (padrão, com coordenadas), `ReconhecedorOcrmypdf` (só texto) | `ReconhecedorFalso` (com ou sem coordenadas) |
+| `VerificadorDePalavras`, `SugeridorDePalavras` | palavras e idioma → as desconhecidas; as sugestões para elas. Só detectam e julgam junção, nunca trocam palavra | `clientes/ortografia.py` (`hunspell`) | funções nos testes |
 | `MarcoPedagogico` | seções e metadados do marco | `Marco` | `MarcoFalso` |
 
 **Divergência registrada com o plano.** O contrato da
@@ -297,8 +303,17 @@ PDF do DSpace → leitura (Kraken) → texto posicionado (PAGE XML) com regiões
 extração grava `<arquivo>.paginas/pagina_NNNN.ocr.xml` para cada página que passou pelo OCR com
 coordenadas, e a página do `.txt` é derivada dele: regiões na ordem de leitura, sem as de tipo
 carimbo e ruído (`regioes.tipos_ignorados`). O `.json` registra as linhas por tipo e as regras
-usadas, porque outras regras dariam outro `.txt` do mesmo PAGE. A re-extração só apaga o `.ocr.xml`;
-o revisado, que virá do eScriptorium com outro sufixo, fica.
+usadas, porque outras regras dariam outro `.txt` do mesmo PAGE. A re-extração só apaga o `.ocr.xml`
+e o `.anterior.txt` (a camada de OCR anterior, guardada para a auditoria da escolha); o revisado,
+que virá do eScriptorium como `.revisada.xml`, fica, e a normalização o prefere.
+
+**Normalização e qualidade.** A etapa `normalizacao` lê a página pelo PAGE XML, onde o `¬` do
+Kraken ainda diz que a palavra continua, e aplica `normalizacao_texto.py`: cada regra desligável
+(`normalizacao.*`), o dicionário só como juiz de junção. Os indicadores de `qualidade_ocr.py` saem
+do texto normalizado, que é o que o RAG vai usar, e vão para o `.qualidade.json`; `main.py
+relatorio-ocr` os soma numa planilha (`relatorio_ocr.py`, gravada por `clientes/planilha.py`, o
+único que importa o `openpyxl`). Os limiares e a medição estão nas
+[medições](medicoes.md#normalização-e-relatório-de-qualidade-2026-11-06).
 
 A imagem é sempre a fonte, e o texto serve para achar o documento. Nada que um modelo interprete
 (conferência visual, ligações) chega ao usuário como afirmação: só decide que trecho entra. Fases,

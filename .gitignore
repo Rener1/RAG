@@ -8,6 +8,8 @@ data/qdrant_storage/
 # versionado nem enviado a terceiros (diretrizes 5.2)
 data/acervo_dspace/
 data/texto_acervo/
+data/texto_acervo_tesseract/
+data/relatorios/
 # Transcrições de referência e candidatos da avaliação do OCR (texto integral do acervo)
 data/avaliacao_ocr/
 # Banco, imagens e modelos do eScriptorium

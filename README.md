@@ -154,6 +154,8 @@ marco: generico
   1  Verificar ambiente   diagnóstico de serviços e artefatos
   2  Baixar corpus        etapa 1 — rede, demorado
   e  Extrair texto        PDFs do acervo — OCR, demorado
+  n  Normalizar texto     palavras partidas e qualidade
+  r  Relatório do OCR     planilha de qualidade
   3  Gerar chunks         etapa 2 — rápido
   4  Indexar              etapa 3 — embedding, muito demorado
   5  Buscar               etapa 4 — só recuperação
@@ -177,6 +179,8 @@ python3 main.py baixar                        # etapa 1 — demorado
 python3 main.py extrair                       # texto dos PDFs do acervo, OCR onde falta
 python3 main.py extrair --documento 123456789/42   # refaz um documento só
 python3 main.py extrair --exportacao X --saida Y   # outra exportação, sem tocar em data/texto_acervo
+python3 main.py normalizar                    # junta palavras partidas e mede a qualidade de cada página
+python3 main.py relatorio-ocr                 # planilha .xlsx de qualidade em data/relatorios/
 python3 main.py chunking                      # etapa 2
 python3 main.py chunking --estrategia paragrafo --saida data/x.jsonl   # corte antigo, um chunk por parágrafo
 python3 main.py indexar                       # etapa 3 — retoma de onde parou

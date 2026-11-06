@@ -92,6 +92,48 @@ class LeitorPoppler:
             )
         return pedacos
 
+    def _areas_das_paginas(self, caminho: Path, total: int) -> dict[int, float]:
+        """Área de cada página em pontos², pela `MediaBox` que o `pdfinfo` informa."""
+        processo = _rodar(["pdfinfo", "-f", "1", "-l", str(total), str(caminho)])
+        areas = {}
+        for numero, largura, altura in re.findall(
+            r"^Page\s+(\d+) size:\s+([\d.]+) x ([\d.]+)", processo.stdout, re.MULTILINE
+        ):
+            areas[int(numero)] = float(largura) * float(altura)
+        return areas
+
+    def coberturas_de_imagem(self, caminho: Path) -> list[float]:
+        total = self.contar_paginas(caminho)
+        areas = self._areas_das_paginas(caminho, total)
+        coberturas = [0.0] * total
+        processo = _rodar(["pdfimages", "-list", str(caminho)])
+        if processo.returncode != 0:
+            return coberturas
+        # page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio
+        # O "object ID" são dois campos ("61 0"), ou um só para imagem embutida ("[inline]").
+        for linha in processo.stdout.splitlines()[2:]:
+            campos = linha.split()
+            if len(campos) < 13 or campos[2] != "image" or not campos[0].isdigit():
+                continue
+            inicio_ppi = 11 if campos[10].startswith("[") else 12
+            try:
+                pagina, largura, altura = int(campos[0]), int(campos[3]), int(campos[4])
+                x_ppi, y_ppi = float(campos[inicio_ppi]), float(campos[inicio_ppi + 1])
+            except (ValueError, IndexError):
+                continue
+            area = areas.get(pagina)
+            if not area or x_ppi <= 0 or y_ppi <= 0 or not 1 <= pagina <= total:
+                continue
+            # pixels ÷ ppi = polegadas; × 72 = pontos, a unidade da página
+            coberta = (largura / x_ppi * 72) * (altura / y_ppi * 72) / area
+            coberturas[pagina - 1] = max(coberturas[pagina - 1], coberta)
+        return coberturas
+
+    def produtor(self, caminho: Path) -> str:
+        processo = _rodar(["pdfinfo", str(caminho)])
+        campos = re.findall(r"^(Creator|Producer):\s+(.+)$", processo.stdout, re.MULTILINE)
+        return "; ".join(f"{nome}: {valor.strip()}" for nome, valor in campos)
+
 
 class ReconhecedorOcrmypdf:
     """OCR das páginas pedidas, via OCRmyPDF com Tesseract."""

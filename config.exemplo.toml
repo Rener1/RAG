@@ -38,6 +38,7 @@
 [extracao]
 # idioma = "por"
 # minimo_de_caracteres_por_pagina = 50
+# cobertura_de_pagina_escaneada = 0.9
 # processos = 0
 # motor = "kraken"
 
@@ -59,6 +60,27 @@
 # marcar_ruido = true
 # maximo_de_caracteres_do_ruido = 3
 # margem_do_ruido = 0.07
+
+# Regras do texto depois do OCR (`normalizacao_texto.py`). Cada uma desligável, e medida.
+[normalizacao]
+# juntar_hifen_marcado = true
+# juntar_hifen_comum = true
+# juntar_sem_hifen = true
+# minimo_da_junta_sem_hifen = 5
+# juntar_linhas = true
+# espaco_apos_pontuacao = true
+# exemplos_por_regra = 5
+
+# Nível de qualidade do OCR por página, sem transcrição de referência (`qualidade_ocr.py`).
+[qualidade]
+# limiar_bom = 0.03
+# limiar_regular = 0.1
+# minimo_de_palavras = 20
+# confianca_baixa = 0.5
+# fracao_hesitante = 0.1
+# limiar_de_idioma = 0.25
+# idiomas_testados = "por|eng|spa|fra"
+# palavras_suspeitas = 10
 
 # Corte dos documentos em trechos.
 [chunking]

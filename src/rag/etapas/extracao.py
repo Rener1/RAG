@@ -34,7 +34,8 @@ from pathlib import Path
 from ..config import ConfigExtracao, ConfigRegioes
 from ..erros import ErroConfiguracao, ErroPreRequisito
 from ..modelos import ResultadoEtapa
-from ..protocolos import LeitorDePdf, ReconhecedorOptico
+from ..protocolos import LeitorDePdf, ReconhecedorOptico, VerificadorDePalavras
+from ..qualidade_ocr import fracao_fora_do_dicionario
 from ..texto_posicionado import (
     PaginaPosicionada,
     classificar_regioes,
@@ -49,6 +50,15 @@ SEPARADOR_DE_PAGINA = "\f"
 # Sufixo do texto posicionado que o OCR produz. O revisado, que virá do
 # eScriptorium, terá outro sufixo, e a re-extração nunca o apaga.
 SUFIXO_DO_OCR = ".ocr.xml"
+# Texto de um OCR anterior (camada que o PDF já trazia sobre a página
+# escaneada), guardado ao lado para a auditoria da escolha.
+SUFIXO_DO_ANTERIOR = ".anterior.txt"
+
+# De onde veio o texto de cada página, no registro (`origem_por_pagina`).
+ORIGEM_DIGITAL = "digital_nativo"
+ORIGEM_OCR_ANTERIOR = "ocr_anterior"
+ORIGEM_OCR = "ocr"
+ORIGEM_SEM_TEXTO = "sem_texto"
 
 # Bundle em que o DSpace guarda o arquivo depositado. Os outros são derivados
 # dele (TEXT é o texto que o próprio DSpace extraiu, THUMBNAIL a miniatura) ou
@@ -89,6 +99,18 @@ def idioma_do_item(pasta: Path) -> str:
             idioma = idioma_do_tesseract(valor.text)
             if idioma:
                 return idioma
+    return ""
+
+
+def titulo_do_item(pasta: Path) -> str:
+    """`dc.title` do item, pelo `dublin_core.xml`. Vazio se não houver."""
+    try:
+        raiz = ET.parse(pasta / "dublin_core.xml").getroot()
+    except (OSError, ET.ParseError):
+        return ""
+    for valor in raiz.iter("dcvalue"):
+        if valor.get("element") == "title" and valor.get("qualifier") in (None, "", "none") and valor.text:
+            return valor.text.strip()
     return ""
 
 
@@ -199,11 +221,13 @@ def extrair_pdf(
     reconhecedor: ReconhecedorOptico,
     sha256: str,
     regioes: ConfigRegioes | None = None,
-) -> tuple[str, dict, dict[int, PaginaPosicionada]]:
-    """Texto de um PDF, com as páginas separadas por `\\f`, o registro e o texto posicionado.
+    verificador: VerificadorDePalavras | None = None,
+) -> tuple[str, dict, dict[int, PaginaPosicionada], dict[int, str]]:
+    """Texto de um PDF, com as páginas separadas por `\\f`, o registro, o texto posicionado e os OCRs anteriores.
 
-    O texto posicionado volta só das páginas que ficaram com o OCR e têm
-    coordenadas, já com as regras de região aplicadas.
+    O texto posicionado volta só das páginas que ficaram com o nosso OCR e têm
+    coordenadas, já com as regras de região aplicadas. Os OCRs anteriores são a
+    camada de texto que o PDF trazia sobre página escaneada, por número.
     """
     regioes = regioes or ConfigRegioes()
     ignorar = tipos_ignorados(regioes)
@@ -213,22 +237,39 @@ def extrair_pdf(
         for n, texto in enumerate(paginas, start=1)
         if not pagina_tem_texto(texto, config.minimo_de_caracteres_por_pagina)
     ]
+    # Texto sobre página escaneada não é texto original: alguém o reconheceu
+    # antes (no acervo, o Acrobat 9 no 7891/4657). Vai ao nosso OCR também, e
+    # fica a leitura com menos palavras fora do dicionário.
+    coberturas = leitor.coberturas_de_imagem(pdf.caminho)
+    anteriores = {
+        n: paginas[n - 1]
+        for n, cobertura in enumerate(coberturas, start=1)
+        if cobertura >= config.cobertura_de_pagina_escaneada and n not in sem_texto
+    }
 
     # Página abaixo do mínimo vai ao OCR, mas o OCR só fica se trouxer mais
     # texto. Folha de rosto e abertura de capítulo são curtas e digitais: o
     # OCR as reconheceria do zero, e trocaria texto exato por texto provável.
     paginas_ocr: list[int] = []
     posicionadas: dict[int, PaginaPosicionada] = {}
-    if sem_texto:
-        reconhecidas = reconhecedor.reconhecer(pdf.caminho, sem_texto)
-        for numero in sem_texto:
+    comparacao: dict[str, dict] = {}
+    para_ocr = sorted(set(sem_texto) | set(anteriores))
+    if para_ocr:
+        reconhecidas = reconhecedor.reconhecer(pdf.caminho, para_ocr)
+        for numero in para_ocr:
             pagina = reconhecidas.get(numero)
             if pagina is None:
                 continue
             if pagina.tem_posicao:
                 pagina = classificar_regioes(pagina, regioes)
             reconhecida = normalizar_pagina(texto_da_pagina(pagina, ignorar))
-            if _caracteres_uteis(reconhecida) > _caracteres_uteis(paginas[numero - 1]):
+            if numero in anteriores:
+                fica_o_nosso, comparacao[str(numero)] = _escolher_leitura(
+                    anteriores[numero], reconhecida, pdf.idioma, verificador, config
+                )
+            else:
+                fica_o_nosso = _caracteres_uteis(reconhecida) > _caracteres_uteis(paginas[numero - 1])
+            if fica_o_nosso:
                 paginas[numero - 1] = reconhecida
                 paginas_ocr.append(numero)
                 if pagina.tem_posicao:
@@ -240,7 +281,7 @@ def extrair_pdf(
         "arquivo": pdf.arquivo,
         "sha256_original": sha256,
         "total_de_paginas": len(paginas),
-        "origem_do_texto": "ocr" if paginas_ocr else "digital_nativo",
+        "origem_do_texto": _origem_do_documento(paginas_ocr, anteriores),
         "minimo_de_caracteres_por_pagina": config.minimo_de_caracteres_por_pagina,
         "extraido_em": datetime.now(UTC).isoformat(timespec="seconds"),
     }
@@ -252,6 +293,17 @@ def extrair_pdf(
         registro["ocr_ferramenta"] = identificacao.get("ferramenta", "")
         registro["ocr_versao"] = identificacao.get("versao", "")
         registro["ocr_parametros"] = identificacao.get("parametros", "")
+    if pdf.idioma:
+        registro["idioma"] = pdf.idioma
+    produtor = leitor.produtor(pdf.caminho)
+    if produtor:
+        registro["produtor_do_pdf"] = produtor
+    if anteriores:
+        registro["comparacao_ocr_anterior"] = comparacao
+    if paginas_ocr or anteriores:
+        registro["origem_por_pagina"] = [
+            _origem_da_pagina(n, texto, paginas_ocr, anteriores, config) for n, texto in enumerate(paginas, start=1)
+        ]
     if posicionadas:
         # As regras entram no registro porque mudam o `.txt`: com outras, o
         # mesmo PAGE XML daria outro texto.
@@ -270,7 +322,45 @@ def extrair_pdf(
     if vazias:
         registro["paginas_abaixo_do_minimo"] = vazias
 
-    return SEPARADOR_DE_PAGINA.join(paginas), registro, posicionadas
+    return SEPARADOR_DE_PAGINA.join(paginas), registro, posicionadas, anteriores
+
+
+def _escolher_leitura(
+    anterior: str, nossa: str, idioma: str, verificador: VerificadorDePalavras | None, config: ConfigExtracao
+) -> tuple[bool, dict]:
+    """Entre o OCR anterior e o nosso, fica o com menor fração fora do dicionário.
+
+    Sem como medir (sem dicionário do idioma), fica o nosso: um motor só no
+    acervo, com regiões e confiança. Leitura nossa abaixo do mínimo não ganha,
+    porque trocaria texto por página vazia.
+    """
+    fracao_anterior = fracao_fora_do_dicionario(anterior, idioma, verificador)
+    fracao_nossa = fracao_fora_do_dicionario(nossa, idioma, verificador)
+    if not pagina_tem_texto(nossa, config.minimo_de_caracteres_por_pagina):
+        fica_o_nosso = False
+    elif fracao_anterior is None or fracao_nossa is None:
+        fica_o_nosso = True
+    else:
+        fica_o_nosso = fracao_nossa <= fracao_anterior
+    escolhido = ORIGEM_OCR if fica_o_nosso else ORIGEM_OCR_ANTERIOR
+    return fica_o_nosso, {"anterior": fracao_anterior, "ocr": fracao_nossa, "escolhido": escolhido}
+
+
+def _origem_da_pagina(
+    numero: int, texto: str, paginas_ocr: list[int], anteriores: dict[int, str], config: ConfigExtracao
+) -> str:
+    if numero in paginas_ocr:
+        return ORIGEM_OCR
+    if not pagina_tem_texto(texto, config.minimo_de_caracteres_por_pagina):
+        return ORIGEM_SEM_TEXTO
+    return ORIGEM_OCR_ANTERIOR if numero in anteriores else ORIGEM_DIGITAL
+
+
+def _origem_do_documento(paginas_ocr: list[int], anteriores: dict[int, str]) -> str:
+    """`ocr` se alguma página é nossa; `ocr_anterior` se só sobrou OCR de outro; senão `digital_nativo`."""
+    if paginas_ocr:
+        return ORIGEM_OCR
+    return ORIGEM_OCR_ANTERIOR if anteriores else ORIGEM_DIGITAL
 
 
 def _somar_contagens(contagens) -> dict[str, int]:
@@ -285,15 +375,20 @@ def pasta_das_paginas(destino: Path, arquivo: str) -> Path:
     return destino / f"{arquivo}.paginas"
 
 
-def _gravar_paginas(pasta: Path, posicionadas: dict[int, PaginaPosicionada], criador: str) -> None:
-    """Troca o texto posicionado do OCR pelo novo. Só o do OCR: o revisado fica."""
+def _gravar_paginas(
+    pasta: Path, posicionadas: dict[int, PaginaPosicionada], anteriores: dict[int, str], criador: str
+) -> None:
+    """Troca o texto posicionado do OCR e os OCRs anteriores pelos novos. O revisado fica."""
     if pasta.is_dir():
-        for antigo in pasta.glob(f"*{SUFIXO_DO_OCR}"):
-            antigo.unlink()
-    if posicionadas:
+        for sufixo in (SUFIXO_DO_OCR, SUFIXO_DO_ANTERIOR):
+            for antigo in pasta.glob(f"*{sufixo}"):
+                antigo.unlink()
+    if posicionadas or anteriores:
         pasta.mkdir(parents=True, exist_ok=True)
     for numero, pagina in sorted(posicionadas.items()):
         _gravar_atomico(pasta / f"pagina_{numero:04d}{SUFIXO_DO_OCR}", escrever_page_xml(pagina, criador))
+    for numero, texto in sorted(anteriores.items()):
+        _gravar_atomico(pasta / f"pagina_{numero:04d}{SUFIXO_DO_ANTERIOR}", texto)
 
 
 def executar(
@@ -306,6 +401,7 @@ def executar(
     refazer: bool = False,
     documentos: list[str] | None = None,
     regioes: ConfigRegioes | None = None,
+    verificador: VerificadorDePalavras | None = None,
     progresso: RelatorProgresso = sem_progresso,
 ) -> ResultadoEtapa:
     """Extrai todos os PDFs da exportação. Seguro de repetir: pula o que já foi extraído.
@@ -337,8 +433,9 @@ def executar(
     resultado.detalhes = {
         "pdfs": len(pdfs),
         "avisos": avisos,
-        "digital_nativo": 0,
-        "ocr": 0,
+        ORIGEM_DIGITAL: 0,
+        ORIGEM_OCR: 0,
+        ORIGEM_OCR_ANTERIOR: 0,
         "paginas_ocr": 0,
         "paginas_abaixo_do_minimo": 0,
         "paginas_posicionadas": 0,
@@ -355,12 +452,17 @@ def executar(
             if not refazer and arquivo_texto.is_file() and _ja_extraido(arquivo_registro, sha256):
                 resultado.ignorados += 1
             else:
-                texto, registro, posicionadas = extrair_pdf(pdf, config, leitor, reconhecedor, sha256, regioes)
+                texto, registro, posicionadas, anteriores = extrair_pdf(
+                    pdf, config, leitor, reconhecedor, sha256, regioes, verificador
+                )
                 destino.mkdir(parents=True, exist_ok=True)
                 # O registro vai por último: é ele que marca o documento como
                 # pronto, então uma interrupção antes dele refaz o documento.
                 _gravar_paginas(
-                    pasta_das_paginas(destino, pdf.arquivo), posicionadas, registro.get("ocr_ferramenta", "rag")
+                    pasta_das_paginas(destino, pdf.arquivo),
+                    posicionadas,
+                    anteriores,
+                    registro.get("ocr_ferramenta", "rag"),
                 )
                 _gravar_atomico(arquivo_texto, texto)
                 _gravar_atomico(arquivo_registro, json.dumps(registro, ensure_ascii=False, indent=2) + "\n")

@@ -32,3 +32,34 @@ def palavras_desconhecidas(palavras: list[str], idioma: str) -> set[str] | None:
     if processo.returncode != 0 or "Can't open" in processo.stderr:
         return None
     return {linha.strip() for linha in processo.stdout.splitlines() if linha.strip()}
+
+
+def sugestoes(palavras: list[str], idioma: str) -> dict[str, list[str]] | None:
+    """As sugestões do dicionário para cada palavra que ele não conhece, ou `None` sem dicionário.
+
+    Serve para **detectar** acento perdido (`circulos` → `círculos`), nunca para
+    trocar a palavra: a escolha automática entre sugestões é o erro mais caro
+    do registro de revisão do OCR.
+    """
+    dicionario = DICIONARIOS.get(idioma)
+    if not dicionario or not palavras:
+        return None if not dicionario else {}
+    try:
+        processo = subprocess.run(
+            ["hunspell", "-a", "-d", dicionario],
+            input="\n".join(palavras),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+    except FileNotFoundError:
+        return None
+    if processo.returncode != 0 or "Can't open" in processo.stderr:
+        return None
+    # `& palavra N deslocamento: s1, s2` para a que tem sugestão; `#` sem sugestão; `*` conhecida.
+    resultado: dict[str, list[str]] = {}
+    for linha in processo.stdout.splitlines():
+        if linha.startswith("& "):
+            cabeca, _, lista = linha[2:].partition(": ")
+            resultado[cabeca.split(" ")[0]] = [s.strip() for s in lista.split(",") if s.strip()]
+    return resultado

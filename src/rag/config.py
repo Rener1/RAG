@@ -75,6 +75,16 @@ class ConfigCaminhos:
         return self.dados / "texto_acervo"
 
     @property
+    def texto_acervo_tesseract(self) -> Path:
+        """Cópia da extração com o Tesseract, guardada para comparar com a do Kraken. Fora do git."""
+        return self.dados / "texto_acervo_tesseract"
+
+    @property
+    def relatorios(self) -> Path:
+        """Planilhas de qualidade do OCR. Citam palavras do acervo: fora do git."""
+        return self.dados / "relatorios"
+
+    @property
     def chunks(self) -> Path:
         return self.dados / self.arquivo_chunks
 
@@ -124,6 +134,11 @@ class ConfigExtracao:
     # quando eles chegarem (docs/engenharia/medicoes.md). Conta só letras e
     # dígitos, para número de página e lixo de camada de texto não contarem.
     minimo_de_caracteres_por_pagina: int = 50
+    # Uma imagem que cobre ao menos esta fração da página faz dela uma página
+    # escaneada, e o texto por cima dela é um OCR anterior, não texto original.
+    # No acervo, as escaneadas ficam acima de 100% (a imagem passa da margem) e a
+    # maior foto de um PDF diagramado cobre 22% (7891/90147): a folga é larga.
+    cobertura_de_pagina_escaneada: float = 0.9
     processos: int = 0  # 0 = todos os núcleos; o paralelismo é por página, dentro do OCR
     # "kraken" desde 2026-11-04: CER de 7,1% contra 35,9% do OCRmyPDF em 5 páginas do
     # acervo, e é o motor do eScriptorium (docs/engenharia/medicoes.md). Grava o texto
@@ -146,6 +161,61 @@ class ConfigKraken:
     # rasterizada a 300 dpi ocupa 1–3 MB no /tmp, que no Fedora fica em memória.
     paginas_por_chamada: int = 20
     dpi: int = 300
+
+
+@dataclass
+class ConfigNormalizacao:
+    """Regras do texto depois do OCR (`normalizacao_texto.py`). Cada uma desligável, e medida.
+
+    O texto bruto fica no PAGE XML e no `.txt` da extração: desligar uma regra é
+    rodar `main.py normalizar` de novo, sem refazer o OCR.
+    """
+
+    # `educa¬` / `ção` → `educação`. O CATMuS só marca `¬` quando a palavra continua.
+    juntar_hifen_marcado: bool = True
+    # `educa-` / `ção`: junta sem hífen quando a palavra junta existe no dicionário;
+    # senão fica `sócio-político` (composta grudada não está nele). Sem dicionário, fica com hífen.
+    juntar_hifen_comum: bool = True
+    # `adul` / `to`, sem hífen nenhum: junta se a junta existe e uma das metades
+    # não — duas palavras que existem (`de` / `pois`) ficam separadas. Mais
+    # arriscada que as outras: é a primeira a desligar se a auditoria acusar erro.
+    juntar_sem_hifen: bool = True
+    # A auditoria de 2026-11-06 achou os erros dela nos pedaços curtos (`vele`,
+    # `ova`, `tica`); com a junta de 5 letras ou mais, eles saem, e `fato` se perde.
+    minimo_da_junta_sem_hifen: int = 5
+    # As linhas de um bloco (região do Kraken, parágrafo do texto digital) viram
+    # um parágrafo só: quebra de linha do papel não é conteúdo.
+    juntar_linhas: bool = True
+    # `adultos.De` → `adultos. De`, poupando número, sigla, e-mail e endereço.
+    espaco_apos_pontuacao: bool = True
+    exemplos_por_regra: int = 5  # guardados no `.qualidade.json`, para a auditoria
+
+
+@dataclass
+class ConfigQualidade:
+    """Nível de qualidade do OCR por página, sem transcrição de referência (`qualidade_ocr.py`).
+
+    Os limiares são **provisórios**: as 5 páginas de referência (CER 0,4–1,9%)
+    dizem o que é uma página boa, mas não há referência de página ruim. A
+    conferência por amostra está nas medições; ajuste depois dela.
+    """
+
+    # Fração das palavras de inicial minúscula que o dicionário não conhece. A de
+    # inicial maiúscula fica fora: nome próprio não está no dicionário e não é erro.
+    limiar_bom: float = 0.03
+    limiar_regular: float = 0.10
+    # Abaixo disso a fração oscila demais (capa, folha de rosto): a página fica sem medida.
+    minimo_de_palavras: int = 20
+    # Confiança do Kraken abaixo disto é palavra hesitante. Mais de `fracao_hesitante`
+    # delas na página baixa um nível: a confiança vê o ruído e a caneta, que o
+    # dicionário às vezes deixa passar (medições, 2026-11-04).
+    confianca_baixa: float = 0.5
+    fracao_hesitante: float = 0.10
+    # Fora do dicionário acima disto faz testar os outros idiomas; se algum cair à
+    # metade, o idioma do catálogo é suspeito (P3).
+    limiar_de_idioma: float = 0.25
+    idiomas_testados: str = "por|eng|spa|fra"
+    palavras_suspeitas: int = 10  # quantas vão à planilha, para quem for conferir
 
 
 @dataclass
@@ -424,6 +494,8 @@ class Config:
     extracao: ConfigExtracao = field(default_factory=ConfigExtracao)
     kraken: ConfigKraken = field(default_factory=ConfigKraken)
     regioes: ConfigRegioes = field(default_factory=ConfigRegioes)
+    normalizacao: ConfigNormalizacao = field(default_factory=ConfigNormalizacao)
+    qualidade: ConfigQualidade = field(default_factory=ConfigQualidade)
     chunking: ConfigChunking = field(default_factory=ConfigChunking)
     embedding: ConfigEmbedding = field(default_factory=ConfigEmbedding)
     vetorial: ConfigVetorial = field(default_factory=ConfigVetorial)

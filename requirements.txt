@@ -3,6 +3,10 @@ requests
 qdrant-client
 mwparserfromhell
 
+# Planilha .xlsx do relatório de qualidade do OCR (`main.py relatorio-ocr`): abas e
+# cores por nível, para mostrar à equipe. Biblioteca de amplo uso (diretrizes 2.10, 2.11).
+openpyxl
+
 # Reordenação por cross-encoder (`busca.reordenar`). Instale a variante de CPU
 # para não disputar VRAM com o embedding e a geração:
 #   pip3 install torch --index-url https://download.pytorch.org/whl/cpu

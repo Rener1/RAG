@@ -321,6 +321,120 @@ direção (Kraken como motor-alvo), não um número para o acervo.
 Reproduz com `python3 main.py avaliar-ocr --gerar todos`, com o container `rag-kraken` construído e
 o modelo baixado (ver README). Sem `--gerar`, só recompara os candidatos já gravados.
 
+## Normalização e relatório de qualidade (2026-11-06)
+
+### O acervo inteiro com o Kraken
+
+Os 39 PDFs (296 páginas) foram reextraídos com o Kraken: 253 páginas por OCR e 43 de texto
+original (só o 7891/90147, diagramado no InDesign). Nenhum PDF perdeu página: o número de `\f`
+bate com o de páginas em todos.
+
+Só **1 página ficou abaixo do mínimo**, contra 20 na extração do Tesseract. As 11 páginas cinzas
+do 7891/90109 voltaram. A que sobrou, 7891/25 p. 1, é uma capa: título em letra grande sobre um
+desenho, que o segmentador não pegou.
+
+O texto anterior foi guardado em `data/texto_acervo_tesseract/` para a comparação.
+Comando: `python3 main.py extrair --refazer`, ~50 min na CPU.
+
+**Texto pronto contra OCR anterior.** A página é escaneada quando uma imagem cobre pelo menos 90%
+dela (`pdfimages -list`). No acervo:
+
+| PDFs | Cobertura das páginas |
+|---|---|
+| todos os escaneados | 100% ou mais (a imagem passa da margem) |
+| o diagramado (7891/90147) | no máximo 22% (uma foto) |
+
+O 7891/4657 traz um OCR do Acrobat 9 sobre a imagem. Naquele francês, o Kraken troca `a` por `o` e
+`d` (`éducotion`, `serdit`), e o Acrobat erra menos. A escolha é pela fração fora do dicionário e
+**espera o `hunspell-fr`**. Sem ele, fica o Kraken.
+
+### Normalização: medida contra a referência
+
+`python3 main.py avaliar-ocr --normalizado` aplica as mesmas regras à referência e ao candidato.
+Quebra de linha e hífen de fim de linha não são conteúdo.
+
+| Motor | CER | WER | WER pont. separada |
+|---|---|---|---|
+| `kraken-catmus-regioes` bruto | 1,4% | 9,4% | 4,0% |
+| `kraken-catmus-regioes` normalizado | **1,0%** | **4,7%** | 4,2% |
+
+Nenhuma página piora no CER. O maior ganho é no 7891/1133 p. 2, onde o WER vai de 19,0% para 3,7%
+pelas palavras partidas e pela pontuação colada. No 7891/90109 p. 3 o WER passa de 8,0% para 8,1%.
+
+**Auditoria das regras.** Foram 30 exemplos sorteados de cada regra no acervo, lidos um a um.
+
+| Regra | Aplicações | Acertos na amostra | Erros achados, e o ajuste feito |
+|---|---|---|---|
+| hífen marcado (`¬`) | 1625 | 27 de 30 | O CATMuS marca também o hífen que fica (`tornando¬` / `se`). Com dicionário, as duas metades existindo e a junta não, o hífen fica |
+| hífen comum | 106 | 30 de 30 | — |
+| hífen mantido | 285 | quase todos em espanhol, sem dicionário | Em português, mantém certo `assumi-los` e `verifica-se` |
+| sem hífen | 128 | 24 de 30 | Pedaços curtos (`vel` / `e` → `vele`, `o` / `va` → `ova`). Passou a exigir junta de 5 letras ou mais (`minimo_da_junta_sem_hifen`) |
+| pontuação colada | 49 | 27 de 30 | `Ph.D.` e o código `FPF.OPF` eram abertos. Passou a exigir minúscula antes, e a não abrir abreviação |
+
+As contagens são as do texto já com os ajustes. O CER normalizado ficou o mesmo depois deles.
+
+### O relatório: níveis do acervo e o que eles valem
+
+Comando: `python3 main.py normalizar && python3 main.py relatorio-ocr`. A planilha fica em
+`data/relatorios/`.
+
+Os níveis vêm da fração das palavras de inicial minúscula fora do dicionário:
+
+| Nível | Fração fora do dicionário |
+|---|---|
+| bom | até 3% |
+| regular | até 10% |
+| ruim | acima de 10%, ou página vazia |
+
+Mais de 10% de palavras hesitantes (confiança abaixo de 0,5) baixa um nível. Ainda **sem os
+dicionários de espanhol e francês**:
+
+| | Bom | Regular | Ruim | Sem medida | Texto original |
+|---|---|---|---|---|---|
+| Documentos (39) | 8 | 17 | 4 | 9 (os 5 em espanhol e os 4 em francês) | 1 |
+| Páginas (296) | 49 | 93 | 20 | 91 | 43 |
+
+Os problemas detectados, em número de documentos:
+
+| Problema | Documentos |
+|---|---|
+| P2, acento perdido ou muitas palavras fora do dicionário | 30 |
+| P7, linhas de baixa confiança | 12 |
+| P6, colunas | 10 |
+| P3, idioma suspeito | 1 |
+
+**Conferência por amostra.** Seis páginas sorteadas, duas por nível, comparando imagem e texto
+normalizado:
+
+- **cinco coerentes**:
+  - as boas leem bem, com acentos perdidos esparsos;
+  - as regulares são legíveis com erro frequente (`uvo`, `roçq`, `escolos comunitúrios`);
+  - a ruim do 7891/1135 p. 1 é capa de revista, que virou lixo;
+- **o desvio**: o 7891/4398 p. 1 é "ruim" com o corpo legível. Metade da página é tabela de números
+  e gráfico, e o lixo deles pesa na fração. O nível é da página inteira, e tabela ainda não é
+  região separada.
+
+**A régua do dicionário não serve para comparar motores.**
+- Nas 5 páginas de referência, a fração fora do dicionário é igual para o Tesseract e para o
+  Kraken (5,4%), com CER de 35,9% contra 1,4%. A fração não vê página perdida nem linha que falta.
+- No acervo ela pune o acento que o CATMuS perde e o Tesseract, com o modelo de português, não
+  perde. Por isso a média fica em 7,3% para o Kraken contra 3,9% para o Tesseract.
+
+Ela serve para ordenar as páginas de um mesmo motor, que é o uso no relatório.
+
+**Onde o Kraken perde de fato.** Na comparação página a página (as 253 do Kraken, com folga de 5
+pontos), há empate em 130. O Tesseract ganha em 22 e o Kraken em 3; em 11 o Tesseract deixou a
+página vazia, e 87 ficaram sem medida (espanhol e francês).
+
+Os trechos confirmam dois casos:
+
+- **inglês**: o CATMuS troca `w` por `v` (`ve`, `avaiting`, 7891/1108);
+- **fotocópia degradada de datiloscrito**: "Ecte testo tem a mientdo de provocat" (7891/3316).
+
+**Decisão (2026-11-06): fica só o Kraken.** A escolha por página entre os dois motores foi
+oferecida e recusada. A correção é treinar o Kraken no acervo com páginas revisadas no
+eScriptorium, a começar por inglês e cópias degradadas (roadmap §4, item 7, fase 7).
+
 ## Tamanho do recorte — agrupado de 2000 vence (2026-10-05)
 
 `paragrafo_agrupado` junta parágrafos consecutivos até o teto, em vez de descartar
